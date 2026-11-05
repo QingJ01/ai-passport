@@ -213,6 +213,7 @@ provide reference material. Choose the entry that matches your task.
 | [Community projects and experience](reference/README.md) | Playbooks and reusable knowledge under `docs/reference/<username>/` |
 | [Contributing](contribution/README.md) | Documentation, commits, and pull-request conventions |
 | [Brand assets](brand/README.md) | Product visual references and [brand language](brand/brand-and-product.md) |
+| [Agent Pet for AI Passport](assets/implementation-status.md) | Device interface, computer bridge, phone companion, and the current verification state |
 | [Fork guide](fork-guide.md) · [Changelog](CHANGELOG.md) | Downstream workflows and release history |
 
 ---

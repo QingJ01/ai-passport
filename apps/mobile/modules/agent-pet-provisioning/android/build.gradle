@@ -1,0 +1,14 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+group = 'dev.agentpet.provisioning'
+version = '0.1.0'
+android {
+  namespace 'dev.agentpet.provisioning'
+  defaultConfig { minSdkVersion 26; versionCode 1; versionName '0.1.0' }
+}
+repositories { maven { url 'https://jitpack.io' } }
+dependencies {
+  implementation 'com.github.espressif:esp-idf-provisioning-android:lib-2.4.4'
+  implementation 'org.greenrobot:eventbus:3.3.1'
+  implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}

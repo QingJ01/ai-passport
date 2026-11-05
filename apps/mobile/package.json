@@ -1,0 +1,31 @@
+{
+  "name": "agent-pet-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "ios": "expo run:ios",
+    "android": "node scripts/ensure-debug-keystore.mjs && expo run:android --variant release",
+    "prebuild": "expo prebuild --no-install",
+    "test": "node --experimental-transform-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "bundle": "expo export --platform ios --platform android"
+  },
+  "dependencies": {
+    "agent-pet-provisioning": "file:./modules/agent-pet-provisioning",
+    "expo": "~54.0.38",
+    "expo-camera": "~17.0.10",
+    "expo-dev-client": "~6.0.20",
+    "expo-modules-core": "~3.0.29",
+    "expo-secure-store": "~15.0.8",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "~5.6.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.10",
+    "prettier": "^3.6.2",
+    "typescript": "~5.9.2"
+  }
+}

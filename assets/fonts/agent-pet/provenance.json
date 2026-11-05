@@ -1,0 +1,21 @@
+{
+  "asset_name": "Agent Pet CJK 16",
+  "exported_symbol": "pet_font_cjk_16",
+  "source_family": "Noto Sans SC",
+  "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+  "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/OFL.txt",
+  "source_sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+  "license": "SIL Open Font License 1.1",
+  "copyright": "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'",
+  "redistribution": "The preserved source font and derivative bitmap font remain under OFL-1.1; distribute OFL.txt with them, including firmware distributions.",
+  "source_file": "source/NotoSansSC-wght.ttf",
+  "generator": "../../../tools/agent_pet_font.py",
+  "rasterizer": {"Pillow": "12.3.0", "FreeType": "2.14.3", "weight": 400, "em_pixels": 16, "layout": "Pillow default BASIC for one codepoint"},
+  "packing": "LVGL 9 PLAIN (bitmap_format=0), 2bpp, high bits first, continuous rows, glyph starts byte-aligned, stride=0",
+  "coverage": "All 7445 valid Python gb2312 double-byte mappings plus 95 printable ASCII characters. Exact Unicode inventory: coverage.txt. Not full Unicode/basic CJK, no emoji, no U+FFFD, no LVGL PUA icons.",
+  "unsupported_text": "Keep LVGL placeholders enabled, or deliberately replace unsupported codepoints with supported '?' (U+003F) or square U+25A1 before display. Unknown characters are not silently mapped by this font.",
+  "metrics": "16px em; actual line_height=21 and base_line=5; max glyph box 17x18. Use line_height for UI layout.",
+  "runtime_memory": "All arrays/descriptors and exported font are const Flash data. No constructor, heap allocation, full-font RAM load, compression buffer, filesystem, or PSRAM requirement. LVGL may use a per-glyph A8 draw buffer; max bounding area is at most 306 bytes before stride/alignment.",
+  "flash_estimate": "525658 bytes of bitmap/glyph/unicode tables with LV_FONT_FMT_TXT_LARGE=0, plus small cmap/font descriptor overhead. Exact linked size depends on target ABI/config; firmware owner must check map.",
+  "validation": "python tools/agent_pet_font.py --check re-rasterizes, verifies source SHA256 and true source cmap glyph IDs, reproduces C byte-for-byte, parses emitted C and compares every glyph metric and pixel, checks all 7540 cmap lookups plus 5 missing-codepoint cases. Reviewed packing against official LVGL v9.5.0 fmt_txt reader. Device visual validation still required."
+}

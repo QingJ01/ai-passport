@@ -1,0 +1,3 @@
+{"v":1,"type":"action.prepare","view_epoch":"fixture-epoch","payload":{"target_id":"fixture-task"}}
+{"v":1,"type":"action","view_epoch":"fixture-epoch","payload":{"action_id":"ffeeddccbbaa99887766554433221100","device_boot_id":"00112233445566778899aabbccddeeff","type":"open_on_host","target_id":"fixture-task","target_revision":1762300000123,"token":"fixturetoken0000000000000000000000000000000000","parameters":{}}}
+{"v":1,"type":"action.query","view_epoch":"fixture-epoch","payload":{"action_id":"ffeeddccbbaa99887766554433221100"}}

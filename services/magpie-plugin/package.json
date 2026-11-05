@@ -1,0 +1,27 @@
+{
+  "name": "@ai-passport/dsh-agent-pet",
+  "version": "0.2.1",
+  "description": "Version-pinned DSH session projection adapter for Agent Pet",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {".": "./src/index.mjs", "./client": "./src/client.js", "./package.json": "./package.json", "./cordis.patch.yml": "./cordis.patch.yml"},
+  "files": ["src", "tools/build-client.mjs", "cordis.patch.yml", "README.md", "README.zh_CN.md"],
+  "engines": {"node": ">=24.9.0", "dsh": "0.2.2-rc.1"},
+  "dsh": {"bundle": {"patch": "./cordis.patch.yml"}, "client": {"inject": ["@deepseek-ai/dsh-api-gateway", "@deepseek-ai/dsh-client-ui-workspace"], "platform": "web"}},
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-app-boot": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-session-projection": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-token-meter": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-user-questions": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-typert-registry": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-api-gateway": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.2-rc.1"
+  },
+  "dependencies": {"@deepseek-ai/schemastery": "3.19.0", "zod": "4.4.3"},
+  "scripts": {"build": "node tools/build-client.mjs", "test": "node tools/build-client.mjs --check && node --test test/*.test.mjs", "pack:check": "npm pack --dry-run --json"},
+  "license": "MIT"
+}

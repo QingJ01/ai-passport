@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Agent Pet",
+    "slug": "agent-pet",
+    "version": "0.1.0",
+    "scheme": "agentpet",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "bundleIdentifier": "dev.agentpet.companion",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Securely configure your AI Passport during its setup window."
+      }
+    },
+    "android": {
+      "package": "dev.agentpet.companion",
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "permissions": [
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the temporary pairing code displayed by your AI Passport.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-secure-store",
+      "./plugins/withProvisioning"
+    ],
+    "autolinking": { "nativeModulesDir": "./modules" }
+  }
+}

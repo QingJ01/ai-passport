@@ -17,6 +17,12 @@ Store reusable font files and generated font sources in `fonts/`.
 - Check Flash and internal-RAM impact before adding a font; the ESP32-C3 has no PSRAM.
 - Do not commit fonts whose license does not permit redistribution.
 
+### Agent Pet display font
+
+[Agent Pet font source](fonts/agent-pet/pet_font_cjk_16.c) and [header](fonts/agent-pet/pet_font_cjk_16.h) export `pet_font_cjk_16`: Noto Sans SC Regular, 16 px em, 2 bpp PLAIN for LVGL 9. Coverage is all 7,445 GB2312 double-byte characters plus 95 printable ASCII characters (7,540 glyphs, including 6,763 Han). The line height is 21 px and baseline is 5 px. Unsupported emoji and extended CJK require a visible fallback; this is not full Unicode coverage.
+
+The [official source font](fonts/agent-pet/source/NotoSansSC-wght.ttf) comes from [Google Fonts](https://github.com/google/fonts/tree/main/ofl/notosanssc) under the retained [SIL OFL 1.1](fonts/agent-pet/OFL.txt). Keep that license with redistributed derived assets/firmware. [Provenance](fonts/agent-pet/provenance.json) records the exact source hash and metrics. Regenerate or independently verify every bitmap/cmap entry with `python tools/agent_pet_font.py --check` from the repository root using the recorded Pillow/FreeType versions. Static tables occupy about 526 KB Flash, with no full-font RAM allocation. Compile the source once and explicitly select the font for dynamic task labels; build/link size and real display rendering remain separate checks.
+
 ## Images
 
 Store reusable source images and generated display assets in `images/`.

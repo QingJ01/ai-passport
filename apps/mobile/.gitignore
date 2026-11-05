@@ -1,0 +1,14 @@
+.local-tools/
+.bundle/
+node_modules/
+.expo/
+dist/
+ios/Pods/
+ios/build/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.jks
+*.keystore
+.env*

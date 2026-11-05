@@ -2,6 +2,17 @@ build/
 sdkconfig
 sdkconfig.old
 managed_components/
+node_modules/
+__pycache__/
+.pytest_cache/
+.env
+.env.local
+.agent-pet/
+# Host UI preview harness: generated sources and build output.
+tools/ui_preview/build/
+tools/ui_preview/preview.c
+tools/ui_preview/*.rgb
+tools/ui_preview/source.json
 .vscode/
 .idea/
 

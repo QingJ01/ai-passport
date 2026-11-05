@@ -36,6 +36,25 @@ run_static_checks() {
         -o "${test_dir}/test_ui_pixel_math"
     "${test_dir}/test_ui_pixel_math"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_agent_pet_model.c main/agent_pet_model.c \
+        -o "${test_dir}/test_agent_pet_model"
+    "${test_dir}/test_agent_pet_model"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_agent_pet_input.c main/agent_pet_input.c \
+        -o "${test_dir}/test_agent_pet_input"
+    "${test_dir}/test_agent_pet_input"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_agent_pet_config.c main/agent_pet_config.c main/agent_pet_model.c \
+        -o "${test_dir}/test_agent_pet_config"
+    "${test_dir}/test_agent_pet_config"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_agent_pet_action.c main/agent_pet_action.c main/agent_pet_model.c \
+        -o "${test_dir}/test_agent_pet_action"
+    "${test_dir}/test_agent_pet_action"
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_agent_pet_contract.py
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_agent_pet_device_tools.py
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_agent_pet_ui_assets.py
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_demo_navigation.c main/demo_navigation.c \
         -o "${test_dir}/test_demo_navigation"
     "${test_dir}/test_demo_navigation"
@@ -82,6 +101,11 @@ run_static_checks() {
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_verify_firmware.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_archive_firmware.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_install_passport_skills.py
+    if command -v node >/dev/null 2>&1 && [ -d "${repo_root}/services/node_modules" ]; then
+        ( cd "${repo_root}/services" && node --test test/*.test.mjs )
+    else
+        echo "Service tests skipped: node or services/node_modules is unavailable"
+    fi
     rm -rf "${test_dir}"
     echo "Host tests: PASS"
 }

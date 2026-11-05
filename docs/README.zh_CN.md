@@ -207,6 +207,7 @@ LICENSE                  仓库许可证
 | [社区作品与经验](reference/README.zh_CN.md) | `docs/reference/<username>/` 下的应用档案和可复用知识 |
 | [参与贡献](contribution/README.zh_CN.md) | 文档、提交与 Pull Request 约定 |
 | [品牌素材](brand/README.zh_CN.md) | 产品视觉参考与[品牌说明](brand/brand-and-product.zh_CN.md) |
+| [AI Passport 的 Agent Pet](assets/implementation-status.zh_CN.md) | 设备界面、电脑桥接、手机伴侣与当前验证状态 |
 | [Fork 指南](fork-guide.zh_CN.md) · [更新记录](CHANGELOG.zh_CN.md) | 下游工作流与版本历史 |
 
 ---

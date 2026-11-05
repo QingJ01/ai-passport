@@ -1,0 +1,10 @@
+- insert:
+    - id: agent-pet-adapter
+      name: '@ai-passport/dsh-agent-pet'
+      config:
+        sourceId: magpie-local
+        bridgeUrl: http://127.0.0.1:7445
+        ipcTokenEnv: AGENT_PET_IPC_TOKEN
+        sourceTokenEnv: AGENT_PET_SOURCE_TOKEN
+        sessionIds: []
+        includeAllSessions: false

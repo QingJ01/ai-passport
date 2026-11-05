@@ -15,6 +15,12 @@
 - 添加字库前评估 Flash 与内部 RAM 影响；ESP32-C3 无 PSRAM。
 - 不提交许可不允许分发的字库。
 
+### Agent Pet 显示字库
+
+[字库源码](fonts/agent-pet/pet_font_cjk_16.c)与[头文件](fonts/agent-pet/pet_font_cjk_16.h)导出 `pet_font_cjk_16`：Noto Sans SC Regular，16 px em，LVGL 9 的 2 bpp PLAIN 格式。覆盖全部 7,445 个 GB2312 双字节字符及 95 个可打印 ASCII 字符，共 7,540 字形，其中 6,763 个汉字。行高 21 px，baseline 为 5 px。未覆盖的 emoji、扩展汉字须呈现可见替代，不宣称覆盖全部 Unicode。
+
+[官方源字体](fonts/agent-pet/source/NotoSansSC-wght.ttf)来自 [Google Fonts](https://github.com/google/fonts/tree/main/ofl/notosanssc)，保留原始 [SIL OFL 1.1](fonts/agent-pet/OFL.txt)；再分发衍生资源/固件时须带许可。[来源记录](fonts/agent-pet/provenance.json)记录精确源哈希与度量。在仓库根目录使用记录的 Pillow/FreeType 版本运行 `python tools/agent_pet_font.py --check`，可重建并独立检查所有位图/cmap 条目。静态表约占 526 KB Flash，不将整套字库加载到 RAM。源码只编译一次，动态任务标签须显式选择此字体；最终链接体积与真实显示另行验收。
+
 ## 图片（images）
 
 可复用的源图与生成的显示资产放在 `images/`。

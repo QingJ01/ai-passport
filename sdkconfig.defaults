@@ -9,8 +9,8 @@ CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
 # 默认模板只保留 NVS、PHY data 和占用剩余空间的 factory app；用户可按需修改。
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.agent-pet.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.agent-pet.csv"
 
 # --- 控制台:USB-Serial-JTAG(C3 原生 USB,GPIO18/19)---
 # 不用 UART0:其默认 TX=GPIO21 与本板背光引脚冲突。
@@ -24,9 +24,41 @@ CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_DEF_REFR_PERIOD=20
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
-# LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
-# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
-CONFIG_LV_MEM_SIZE_KILOBYTES=24
+# --- Agent Pet LVGL 内存策略 ---
+# 本板无 PSRAM,可用动态内存总量约 148KB,Wi-Fi/BLE/TLS 与 LVGL 共用这一块。
+# 实测该界面 LVGL 峰值约 15KB(build 后 lv_peak=15060,含 17 个对象、176px 二维码
+# 画布与 GB2312 字库标签),因此不再固定预留大块静态池,而让 LVGL 走系统堆:
+# 免去"池被静态占满、系统堆却不够 Wi-Fi"的两难。代价是失去与网络分配的隔离,
+# 必须持续观察 pet_mem 日志中的 lv_peak/heap_largest,保证 Wi-Fi/BLE/TLS 峰值仍有余量。
+# 仍保持 LVGL 断言开启,分配失败必须暴露而不是静默跳绘。
+CONFIG_LV_USE_CLIB_MALLOC=y
+# CONFIG_LV_USE_BUILTIN_MALLOC is not set
+
+# --- Agent Pet verified TLS ---
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+CONFIG_ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_1=y
+CONFIG_LV_USE_QRCODE=y
+# Keep full TLS record input and certificate/name/time verification. Dynamic
+# record buffers reduce idle use; they do not eliminate the handshake peak.
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA is not set
+# CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT is not set
+
+# --- Bounded low-throughput Wi-Fi buffers (IDF 5.5.3 ranges checked) ---
+# State frames are <=4096 bytes. Six static RX buffers retain the six-frame
+# receive block-ack window; dynamic limits bound bursts, not idle allocations.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=12
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=12
+CONFIG_ESP_WIFI_STATIC_RX_MGMT_BUFFER=y
+CONFIG_ESP_WIFI_RX_MGMT_BUF_NUM_DEF=3
+CONFIG_ESP_WIFI_MGMT_SBUF_NUM=6
+CONFIG_ESP_WIFI_RX_BA_WIN=6
 
 # --- 系统 ---
 CONFIG_FREERTOS_HZ=1000
@@ -40,5 +72,8 @@ CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
 CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# One advertising activity plus one provisioning connection; no BLE scanning.
+CONFIG_BT_CTRL_BLE_MAX_ACT=2
+CONFIG_BT_NIMBLE_MAX_BONDS=1
 CONFIG_BT_NIMBLE_HOST_BASED_PRIVACY=n
 CONFIG_BT_NIMBLE_NVS_PERSIST=n

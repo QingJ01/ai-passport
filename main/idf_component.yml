@@ -1,0 +1,4 @@
+dependencies:
+  # Retain the verified upstream LVGL baseline while adding networking.
+  lvgl/lvgl: "9.5.0"
+  espressif/esp_websocket_client: "1.8.0"

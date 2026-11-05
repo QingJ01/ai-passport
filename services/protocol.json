@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "transport": {
+    "websocket_path": "/v1/device",
+    "max_message_bytes": 4096,
+    "compression": false,
+    "tls_min": "1.2",
+    "auth_timeout_ms": 5000
+  },
+  "envelope": ["v", "type", "stream_id", "view_epoch", "revision", "payload"],
+  "relay": {
+    "websocket_path": "/v1/relay",
+    "device_auth_payload": {
+      "credential": "independent relay credential",
+      "device_id": "bound device identity",
+      "view_epoch": "device boot/privacy epoch",
+      "public_mode": "boolean"
+    },
+    "source_auth_payload": {
+      "credential": "independent source relay credential",
+      "device_id": "authorized bound view"
+    },
+    "welcome_payload": {
+      "capabilities": [],
+      "mode": "private | public",
+      "view_epoch": "desired remote epoch",
+      "source": "original source health",
+      "limits": "negotiated bounds"
+    },
+    "view_configure_payload": {
+      "mode": "private | public",
+      "view_epoch": "desired new remote epoch"
+    },
+    "policy": "new epoch or privacy mode clears cache and asks source for a newly filtered publication; never relabel old frames; LAN view independent"
+  },
+  "revision": {
+    "minimum": 0,
+    "maximum": 4294967295,
+    "scope": "per-device filtered publication stream",
+    "increments": "published state.delta only"
+  },
+  "limits": {
+    "tasks": 16,
+    "inbox": 8,
+    "tasks_per_page": 4,
+    "title_utf8_bytes": 96,
+    "interactions_per_task": 4
+  },
+  "messages": {
+    "hello": {
+      "payload": {
+        "device_id": "string",
+        "versions": [1],
+        "view_epoch": "string"
+      }
+    },
+    "auth": {
+      "payload": {
+        "credential": "string"
+      }
+    },
+    "snapshot.begin": {
+      "payload": {
+        "snapshot_id": "string",
+        "page_count": "integer",
+        "task_count": "integer",
+        "inbox_count": "integer"
+      }
+    },
+    "snapshot.page": {
+      "payload": {
+        "snapshot_id": "string",
+        "page": "zero-based integer",
+        "tasks": "array",
+        "inbox": "array",
+        "usage": "optional object",
+        "source": "optional object",
+        "total_tasks": "optional integer"
+      }
+    },
+    "snapshot.end": {
+      "payload": {
+        "snapshot_id": "string"
+      }
+    },
+    "state.delta": {
+      "payload": {
+        "ops": "array of task.upsert, task.remove, usage.replace"
+      }
+    },
+    "heartbeat": {
+      "payload": {
+        "source": {
+          "connected": "boolean",
+          "fresh": "boolean",
+          "source_updated_at": "ISO8601 or null"
+        }
+      }
+    }
+  },
+  "task": {
+    "required": ["id", "title", "state", "execution_state"],
+    "optional": [
+      "entity_kind",
+      "task_outcome",
+      "turn_outcome",
+      "pending_interactions",
+      "state_revision",
+      "updated_at",
+      "available_actions"
+    ]
+  },
+  "usage": {
+    "tokens": "nonnegative decimal string or null",
+    "provenance": "host-reduced-records | unavailable | hidden",
+    "money": "bounded provenance-bearing record array; unavailable for Magpie",
+    "scope": "loaded_sessions_lifetime",
+    "daily_tokens": null
+  },
+  "enrollment": {
+    "ticket_route": "POST /v1/enrollment/tickets",
+    "operations": ["enroll", "rotate_credential"],
+    "default_operation": "enroll",
+    "rotation_requires": "same account/source/P256 key, new physical challenge nonce, one-use ticket possession proof",
+    "rotation_effect": "revoke previous device credentials and subscriptions; preserve remote_enabled and LAN trust",
+    "service_metadata_transport": "local for bridge, remote for relay; legacy omitted means local"
+  },
+  "serial_setup": {
+    "v": 1,
+    "type": "setup",
+    "ssid": "string",
+    "password": "string",
+    "endpoint": "wss URL",
+    "token": "device credential",
+    "ca_pem": "PEM trust certificate",
+    "server_name": "certificate DNS name",
+    "time": "integer UTC seconds",
+    "device_id": "optional credential-bound identity",
+    "time_bootstrap_url": "optional HTTP time-only URL",
+    "time_issuer": "optional restricted issuer",
+    "enrollment_public_key_pem": "optional pinned P256 key"
+  }
+}
