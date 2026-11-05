@@ -71,11 +71,19 @@ export class Model {
     if (previous && e.revision <= previous.state_revision) return false;
     if (!Number.isSafeInteger(e.revision) || e.revision < 0)
       throw new Error("invalid_revision");
-    const execution = ["running", "idle", "queued", "unknown"].includes(
+    const kind = ["goal", "turn", "job", "workflow"].includes(e.entity_kind)
+      ? e.entity_kind
+      : "turn";
+    const turnEnded = e.turn_outcome === "ended";
+    let execution = ["running", "idle", "queued", "unknown"].includes(
       e.execution_state,
     )
       ? e.execution_state
       : "unknown";
+    // A source may report its agent as running at the instant a turn ends. The
+    // turn itself is no longer executing; that is not evidence of success.
+    if (kind === "turn" && turnEnded && execution === "running")
+      execution = "idle";
     const interactions = (e.pending_interactions ?? [])
       .slice(0, 4)
       .map((x) => ({
@@ -91,15 +99,13 @@ export class Model {
     const task = {
       id: taskId,
       title: text(e.title || "Agent task"),
-      entity_kind: ["goal", "turn", "job", "workflow"].includes(e.entity_kind)
-        ? e.entity_kind
-        : "turn",
+      entity_kind: kind,
       execution_state: execution,
       state: interactions.length
         ? "waiting_user"
         : (outcome ?? (execution === "idle" ? "unknown" : execution)),
       task_outcome: outcome,
-      turn_outcome: e.turn_outcome === "ended" ? "ended" : null,
+      turn_outcome: turnEnded ? "ended" : null,
       pending_interactions: interactions,
       state_revision: e.revision,
       updated_at: new Date(this.now()).toISOString(),
@@ -109,6 +115,32 @@ export class Model {
     if (!this.tasks.has(taskId) && this.tasks.size >= 4096)
       throw new Error("task_capacity");
     this.tasks.set(taskId, task);
+    // Turns of one session are sequential. Once a newer turn is reported, an
+    // older turn that never received its final update cannot still be running
+    // or waiting. Its outcome stays unreported. A late event for an older turn
+    // has a lower revision and never demotes a newer one.
+    if (kind === "turn")
+      for (const [tid, identity] of this.identities) {
+        const older = this.tasks.get(tid);
+        if (
+          tid === taskId ||
+          !older ||
+          older.entity_kind !== "turn" ||
+          identity.source_id !== e.source_id ||
+          identity.session_id !== e.session_id ||
+          older.state_revision >= e.revision ||
+          (older.execution_state !== "running" &&
+            older.execution_state !== "queued" &&
+            !older.pending_interactions.length)
+        )
+          continue;
+        this.tasks.set(tid, {
+          ...older,
+          execution_state: "idle",
+          pending_interactions: [],
+          state: older.task_outcome ?? "unknown",
+        });
+      }
     this.lastSeen = this.now();
     this.connected = true;
     return true;

@@ -50,6 +50,47 @@ test("sanitization, explicit outcomes, orthogonal questions and stale source", (
   assert(Buffer.byteLength(text("😀".repeat(100))) <= 96);
   assert(!text("😀".repeat(100)).includes("�"));
 });
+test("ended or superseded turns of one session stop counting as running", () => {
+  const m = new Model();
+  const turn = (run, revision, extra = {}) =>
+    m.ingest(event({ run_id: run, revision, entity_kind: "turn", ...extra }));
+  // The source still reports its agent running when turn 1 ends.
+  turn("turn-1", 1, { turn_outcome: "ended" });
+  turn("turn-2", 2, {
+    pending_interactions: [{ request_id: "q", revision: 2, blocks_execution: true }],
+  });
+  turn("turn-3", 3);
+  m.ingest(event({ session_id: "other", run_id: "turn-1", revision: 1, entity_kind: "turn" }));
+  const byRun = (session, run) =>
+    [...m.tasks.entries()].find(
+      ([id]) =>
+        m.identities.get(id).session_id === session &&
+        m.identities.get(id).run_id === run,
+    )[1];
+  const first = byRun("session", "turn-1");
+  assert.equal(first.execution_state, "idle");
+  assert.equal(first.turn_outcome, "ended");
+  assert.equal(first.task_outcome, null, "ending a turn is not goal success");
+  const second = byRun("session", "turn-2");
+  assert.equal(second.execution_state, "idle");
+  assert.deepEqual(second.pending_interactions, []);
+  assert.equal(second.state, "unknown");
+  assert.equal(byRun("session", "turn-3").execution_state, "running");
+  assert.equal(byRun("other", "turn-1").execution_state, "running",
+    "another session is independent");
+  // A stale (lower-revision) frame is rejected and demotes nothing.
+  assert.equal(turn("turn-2", 2, { execution_state: "running" }), false);
+  assert.equal(byRun("session", "turn-3").execution_state, "running");
+  // Revisions, not run names, order updates within a session.
+  turn("turn-1", 5, { execution_state: "running" });
+  assert.equal(byRun("session", "turn-3").execution_state, "idle");
+  assert.equal(byRun("session", "turn-1").execution_state, "running");
+  assert.equal(
+    m.projection().tasks.filter((t) => t.execution_state === "running").length,
+    2,
+  );
+});
+
 test("usage corrections and replacements upsert records without counting twice", () => {
   const m = new Model();
   assert.equal(m.usage().tokens, null);
