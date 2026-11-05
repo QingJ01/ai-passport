@@ -143,7 +143,10 @@ void pet_runtime_copy(pet_runtime_view_t*out,char*s,size_t cap){
     xSemaphoreTake(lock,portMAX_DELAY);pet_model_tick(&model,millis());out->current=model.current;out->public_mode=model.public_mode;out->transport=(pet_transport_t)config.mode;snprintf(s,cap,"%s",status_text);xSemaphoreGive(lock);
 }
 void pet_runtime_privacy(bool pub){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);char e[65];epoch(e);pet_model_privacy(&model,pub,e);pet_action_hide_private(&host_action);action_command_pending=false;serial_policy_pending=window_open();rx_ready=false;rx_len=0;fragmented=false;memset(rx,0,sizeof(rx));memset(serial_line,0,sizeof(serial_line));serial_len=0;serial_discard=true;privacy_save=true;reconnect=true;xSemaphoreGive(lock);notify(EV_WAKE);}
-void pet_runtime_setup_window(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);if(!trial){clear_candidate();setup_until=millis()+120000;fresh_view();reconnect=true;snprintf(status_text,sizeof(status_text),"USB setup: 120 seconds");}xSemaphoreGive(lock);notify(EV_WAKE);}
+/* Reopening an open window only extends it: a new epoch would discard the
+ * projection the computer is already streaming and force a full resync. */
+void pet_runtime_setup_window(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);if(!trial){if(window_open())setup_until=millis()+120000;else{clear_candidate();setup_until=millis()+120000;fresh_view();reconnect=true;}snprintf(status_text,sizeof(status_text),"USB setup: 120 seconds");}xSemaphoreGive(lock);notify(EV_WAKE);}
+unsigned pet_runtime_setup_seconds(void){if(!lock)return 0;xSemaphoreTake(lock,portMAX_DELAY);int32_t remaining=(int32_t)(setup_until-millis());unsigned seconds=setup_until&&remaining>0?((uint32_t)remaining+999)/1000:0;xSemaphoreGive(lock);return seconds;}
 void pet_runtime_confirm(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);if(pending&&window_open())confirmed=true;xSemaphoreGive(lock);notify(EV_WAKE);}
 bool pet_runtime_setup_pending(void){if(!lock)return false;xSemaphoreTake(lock,portMAX_DELAY);bool yes=pending&&window_open();xSemaphoreGive(lock);return yes;}
 void pet_runtime_cancel_setup(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);cancel_requested=true;xSemaphoreGive(lock);notify(EV_WAKE);}

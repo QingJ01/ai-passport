@@ -17,6 +17,8 @@ bool pet_runtime_open_query(void);
 void pet_runtime_open_copy(pet_action_view_t *out);
 void pet_runtime_privacy(bool public_mode);
 void pet_runtime_setup_window(void);
+/* Seconds left in the physical USB window, 0 when it is closed. */
+unsigned pet_runtime_setup_seconds(void);
 void pet_runtime_confirm(void);
 bool pet_runtime_setup_pending(void);
 void pet_runtime_cancel_setup(void);

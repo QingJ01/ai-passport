@@ -139,6 +139,16 @@ class DeviceToolsTest(unittest.TestCase):
         command['payload'] = {'mode': False, 'view_epoch': 'fresh-epoch'}
         self.assertIsNone(device.upstream_command(json.dumps(command).encode()))
 
+    def test_frames_from_a_previous_epoch_are_dropped_not_fatal(self):
+        frame = {'v': 1, 'type': 'heartbeat', 'view_epoch': 'old-epoch', 'payload': {}}
+        line = json.dumps(frame).encode()
+        self.assertEqual(device.bridge_frame(line, 'old-epoch'), frame)
+        self.assertIsNone(device.bridge_frame(line, 'new-epoch'),
+                          'a frame left over from a discarded projection must not reach the device')
+        self.assertIsNone(device.bridge_frame(b'{"v":1,"type":"heartbeat"}', 'new-epoch'))
+        self.assertIsNone(device.bridge_frame(b'[1]', 'new-epoch'))
+        self.assertIsNone(device.bridge_frame(b'not json', 'new-epoch'))
+
     def test_advertised_ble_uuid_matches_qr_uuid(self):
         source = (ROOT / 'main/agent_pet_provisioning.c').read_text()
         text = re.search(r'service_uuid\[\]\s*=\s*"([^"]+)"', source)

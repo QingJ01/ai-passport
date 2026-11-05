@@ -184,6 +184,23 @@ def upstream_command(line):
     return value
 
 
+def bridge_frame(line, current_epoch):
+    """Return a bridge frame for the device's current epoch, or None to drop it.
+
+    The device starts a new privacy epoch when its USB window is reopened or its
+    privacy mode changes. Frames the bridge emitted under the previous epoch can
+    still be in the pipe at that moment; they belong to a projection the device
+    has already discarded, so they are dropped here and never written to it.
+    """
+    try:
+        value = json.loads(line)
+    except (ValueError, UnicodeError):
+        return None
+    if not isinstance(value, dict) or value.get('view_epoch') != current_epoch:
+        return None
+    return value
+
+
 def forward(port, info, config_path, seconds, node):
     configuration = json.loads(config_path.read_text())
     directory = config_path.parent
@@ -207,6 +224,7 @@ def forward(port, info, config_path, seconds, node):
     selector = selectors.DefaultSelector()
     frames = 0
     commands = 0
+    stale = 0
     current_epoch = info['view_epoch']
     parser = Lines()
     serial_lines = Lines()
@@ -226,9 +244,9 @@ def forward(port, info, config_path, seconds, node):
                 for line in parser.feed(chunk):
                     if not line:
                         continue
-                    value = json.loads(line)
-                    if value.get('view_epoch') != current_epoch:
-                        raise RuntimeError('Bridge privacy epoch mismatch.')
+                    if bridge_frame(line, current_epoch) is None:
+                        stale += 1
+                        continue
                     encoded = line + b'\n'
                     # Initial firmware drains 128 bytes each 25 ms; pace below
                     # that limit because the IDF USB RX ISR drops a full ring.
@@ -263,7 +281,8 @@ def forward(port, info, config_path, seconds, node):
             process.kill()
             process.communicate()
     after = query(port)
-    print(json.dumps({'forwarded_frames': frames, 'forwarded_commands': commands, 'device_after': after}, ensure_ascii=False))
+    print(json.dumps({'forwarded_frames': frames, 'forwarded_commands': commands,
+                      'dropped_stale_frames': stale, 'device_after': after}, ensure_ascii=False))
     if not after.get('source_fresh'):
         raise RuntimeError('Device did not confirm fresh source state; check physical USB window and source health.')
 
