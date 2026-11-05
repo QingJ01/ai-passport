@@ -21,6 +21,8 @@
 
 [官方源字体](fonts/agent-pet/source/NotoSansSC-wght.ttf)来自 [Google Fonts](https://github.com/google/fonts/tree/main/ofl/notosanssc)，保留原始 [SIL OFL 1.1](fonts/agent-pet/OFL.txt)；再分发衍生资源/固件时须带许可。[来源记录](fonts/agent-pet/provenance.json)记录精确源哈希与度量。在仓库根目录使用记录的 Pillow/FreeType 版本运行 `python tools/agent_pet_font.py --check`，可重建并独立检查所有位图/cmap 条目。静态表约占 526 KB Flash，不将整套字库加载到 RAM。源码只编译一次，动态任务标签须显式选择此字体；最终链接体积与真实显示另行验收。
 
+同一个生成器还会为固定界面文案生成两套子集字库：`pet_font_ui_14`（14 px，字重 500）和 `pet_font_ui_24`（24 px，字重 600）。字符清单是可打印 ASCII 加上 `main/main.c` 与 `main/agent_pet_text.c` 中出现的全部非 ASCII 字符（[coverage-ui.txt](fonts/agent-pet/coverage-ui.txt)）；[metrics.json](fonts/agent-pet/metrics.json) 记录三套字库的度量。修改屏幕文案后需重新运行 `python tools/agent_pet_font.py`，子集过期时 `--check` 会失败。两套子集约增加 60 KB Flash 表。
+
 ## 图片（images）
 
 可复用的源图与生成的显示资产放在 `images/`。

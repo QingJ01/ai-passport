@@ -23,6 +23,8 @@ Store reusable font files and generated font sources in `fonts/`.
 
 The [official source font](fonts/agent-pet/source/NotoSansSC-wght.ttf) comes from [Google Fonts](https://github.com/google/fonts/tree/main/ofl/notosanssc) under the retained [SIL OFL 1.1](fonts/agent-pet/OFL.txt). Keep that license with redistributed derived assets/firmware. [Provenance](fonts/agent-pet/provenance.json) records the exact source hash and metrics. Regenerate or independently verify every bitmap/cmap entry with `python tools/agent_pet_font.py --check` from the repository root using the recorded Pillow/FreeType versions. Static tables occupy about 526 KB Flash, with no full-font RAM allocation. Compile the source once and explicitly select the font for dynamic task labels; build/link size and real display rendering remain separate checks.
 
+The same generator also emits two subset fonts for fixed UI copy: `pet_font_ui_14` (14 px, weight 500) and `pet_font_ui_24` (24 px, weight 600). Their inventory is printable ASCII plus every non-ASCII character written in `main/main.c` and `main/agent_pet_text.c` ([coverage-ui.txt](fonts/agent-pet/coverage-ui.txt)); [metrics.json](fonts/agent-pet/metrics.json) records all three fonts. After changing on-screen copy, rerun `python tools/agent_pet_font.py`; `--check` fails if a subset is stale. The two subsets add about 60 KB of Flash tables.
+
 ## Images
 
 Store reusable source images and generated display assets in `images/`.

@@ -54,6 +54,11 @@ run_static_checks() {
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_agent_pet_contract.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_agent_pet_device_tools.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_agent_pet_ui_assets.py
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_agent_pet_text_coverage.py
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_agent_pet_text.c main/agent_pet_text.c \
+        -o "${test_dir}/test_agent_pet_text"
+    "${test_dir}/test_agent_pet_text"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_demo_navigation.c main/demo_navigation.c \
         -o "${test_dir}/test_demo_navigation"

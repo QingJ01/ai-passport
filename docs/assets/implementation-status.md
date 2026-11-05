@@ -99,13 +99,18 @@ tools/ui_preview/build/ui-preview "$PWD/tools/ui_preview"
 python3 tools/ui_preview/convert.py
 ```
 
-These are actual host LVGL renders, not photographs of the board. Tasks, Usage and Inbox use labelled synthetic fixtures. Board rendering and resource readings are reported separately.
+These are actual host LVGL renders, not photographs of the board, with the board's 30 px corner mask applied. The live overview, Tasks, Usage, Inbox and host-action frames use labelled synthetic fixtures. Board rendering and resource readings are reported separately.
+
+All on-screen copy is Simplified Chinese. Fixed copy is drawn with two subset fonts generated from the UI sources (`pet_font_ui_14` for status, tabs and key hints, `pet_font_ui_24` for titles and large numbers); dynamic task text keeps the GB2312 `pet_font_cjk_16`. Runtime status lines stay English in logs and are translated by `main/agent_pet_text.c`; `tests/test_agent_pet_text_coverage.py` fails when a runtime status lacks Chinese copy or a UI character lacks a glyph.
 
 ![Unpaired overview, actual LVGL host render](agent-pet-ui-now.png)
+![Live overview with fixture data, actual LVGL host render](agent-pet-ui-now-live.png)
 ![Tasks page with fixture data, actual LVGL host render](agent-pet-ui-tasks.png)
 ![Usage page with fixture data, actual LVGL host render](agent-pet-ui-usage.png)
 ![Inbox page with fixture data, actual LVGL host render](agent-pet-ui-inbox.png)
-![Three-row menu, actual LVGL host render](agent-pet-ui-menu.png)
+![Five-row scrolling menu, actual LVGL host render](agent-pet-ui-menu.png)
+![Settings confirmation with Cancel as default, actual LVGL host render](agent-pet-ui-confirm.png)
+![Open-on-computer dialog with fixture data, actual LVGL host render](agent-pet-ui-action.png)
 
 ## Device and data preservation
 

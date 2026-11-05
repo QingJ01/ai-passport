@@ -10,12 +10,35 @@
   "redistribution": "The preserved source font and derivative bitmap font remain under OFL-1.1; distribute OFL.txt with them, including firmware distributions.",
   "source_file": "source/NotoSansSC-wght.ttf",
   "generator": "../../../tools/agent_pet_font.py",
-  "rasterizer": {"Pillow": "12.3.0", "FreeType": "2.14.3", "weight": 400, "em_pixels": 16, "layout": "Pillow default BASIC for one codepoint"},
+  "rasterizer": {
+    "Pillow": "12.3.0",
+    "FreeType": "2.14.3",
+    "weight": 400,
+    "em_pixels": 16,
+    "layout": "Pillow default BASIC for one codepoint"
+  },
   "packing": "LVGL 9 PLAIN (bitmap_format=0), 2bpp, high bits first, continuous rows, glyph starts byte-aligned, stride=0",
   "coverage": "All 7445 valid Python gb2312 double-byte mappings plus 95 printable ASCII characters. Exact Unicode inventory: coverage.txt. Not full Unicode/basic CJK, no emoji, no U+FFFD, no LVGL PUA icons.",
   "unsupported_text": "Keep LVGL placeholders enabled, or deliberately replace unsupported codepoints with supported '?' (U+003F) or square U+25A1 before display. Unknown characters are not silently mapped by this font.",
   "metrics": "16px em; actual line_height=21 and base_line=5; max glyph box 17x18. Use line_height for UI layout.",
   "runtime_memory": "All arrays/descriptors and exported font are const Flash data. No constructor, heap allocation, full-font RAM load, compression buffer, filesystem, or PSRAM requirement. LVGL may use a per-glyph A8 draw buffer; max bounding area is at most 306 bytes before stride/alignment.",
   "flash_estimate": "525658 bytes of bitmap/glyph/unicode tables with LV_FONT_FMT_TXT_LARGE=0, plus small cmap/font descriptor overhead. Exact linked size depends on target ABI/config; firmware owner must check map.",
-  "validation": "python tools/agent_pet_font.py --check re-rasterizes, verifies source SHA256 and true source cmap glyph IDs, reproduces C byte-for-byte, parses emitted C and compares every glyph metric and pixel, checks all 7540 cmap lookups plus 5 missing-codepoint cases. Reviewed packing against official LVGL v9.5.0 fmt_txt reader. Device visual validation still required."
+  "validation": "python tools/agent_pet_font.py --check re-rasterizes, verifies source SHA256 and true source cmap glyph IDs, reproduces C byte-for-byte, parses emitted C and compares every glyph metric and pixel, checks all 7540 cmap lookups plus 5 missing-codepoint cases. Reviewed packing against official LVGL v9.5.0 fmt_txt reader. Device visual validation still required.",
+  "ui_subsets": {
+    "exported_symbols": [
+      "pet_font_ui_14",
+      "pet_font_ui_24"
+    ],
+    "em_pixels": [
+      14,
+      24
+    ],
+    "weights": [
+      500,
+      600
+    ],
+    "coverage": "Printable ASCII plus every non-ASCII character in main/main.c and main/agent_pet_text.c; exact list in coverage-ui.txt.",
+    "use": "Fixed UI copy only (titles, status, tabs, hints, large numbers). Dynamic task/inbox text must use pet_font_cjk_16.",
+    "validation": "python tools/agent_pet_font.py --check reproduces both subsets and their headers byte-for-byte; tests/test_agent_pet_text_coverage.py checks UI characters against coverage files without Pillow."
+  }
 }

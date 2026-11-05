@@ -7,6 +7,9 @@ set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${REPO}/managed_components/lvgl__lvgl" lvgl)
-add_executable(ui-preview preview.c "${REPO}/main/agent_pet_model.c" "${REPO}/assets/fonts/agent-pet/pet_font_cjk_16.c")
-target_include_directories(ui-preview PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${REPO}/main" "${REPO}/assets/fonts/agent-pet" "${REPO}/components/bsp/include")
+add_executable(ui-preview preview.c "${REPO}/main/agent_pet_model.c" "${REPO}/main/agent_pet_text.c"
+    "${REPO}/components/bsp/src/bsp_display_rounding.c"
+    "${REPO}/assets/fonts/agent-pet/pet_font_cjk_16.c" "${REPO}/assets/fonts/agent-pet/pet_font_ui_14.c"
+    "${REPO}/assets/fonts/agent-pet/pet_font_ui_24.c")
+target_include_directories(ui-preview PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${REPO}/main" "${REPO}/assets/fonts/agent-pet" "${REPO}/components/bsp/include" "${REPO}/components/bsp/src")
 target_link_libraries(ui-preview PRIVATE lvgl m)

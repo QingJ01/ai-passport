@@ -99,13 +99,18 @@ tools/ui_preview/build/ui-preview "$PWD/tools/ui_preview"
 python3 tools/ui_preview/convert.py
 ```
 
-下面是实际 LVGL 离屏渲染，并非板卡照片；Tasks、Usage、Inbox 图片采用标注明确的合成测试数据。真机显示和资源回读另行记录。
+下面是实际 LVGL 离屏渲染，并非板卡照片，已套用板卡的 30 px 圆角遮罩。实时概览、任务、用量、消息和电脑操作几张图采用标注明确的合成测试数据。真机显示和资源回读另行记录。
+
+屏幕文案全部为简体中文。固定文案用两套从 UI 源码生成的子集字库绘制（`pet_font_ui_14` 用于状态行、标签栏和按键提示，`pet_font_ui_24` 用于标题和大数字），动态任务文字仍用 GB2312 的 `pet_font_cjk_16`。运行时状态在日志里保持英文，由 `main/agent_pet_text.c` 翻译；若某条运行时状态缺少中文，或某个界面字符缺少字形，`tests/test_agent_pet_text_coverage.py` 会失败。
 
 ![未配对首页，实际 LVGL 离屏渲染](agent-pet-ui-now.png)
+![带合成数据的实时概览，实际 LVGL 离屏渲染](agent-pet-ui-now-live.png)
 ![带合成数据的任务页，实际 LVGL 离屏渲染](agent-pet-ui-tasks.png)
 ![带合成数据的用量页，实际 LVGL 离屏渲染](agent-pet-ui-usage.png)
-![带合成数据的收件箱页，实际 LVGL 离屏渲染](agent-pet-ui-inbox.png)
-![三行菜单，实际 LVGL 离屏渲染](agent-pet-ui-menu.png)
+![带合成数据的消息页，实际 LVGL 离屏渲染](agent-pet-ui-inbox.png)
+![五行滚动菜单，实际 LVGL 离屏渲染](agent-pet-ui-menu.png)
+![默认选中“取消”的设置确认，实际 LVGL 离屏渲染](agent-pet-ui-confirm.png)
+![带合成数据的“在电脑上打开”对话框，实际 LVGL 离屏渲染](agent-pet-ui-action.png)
 
 ## 设备与数据保留
 
