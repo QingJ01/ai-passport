@@ -101,6 +101,8 @@ python3 tools/ui_preview/convert.py
 
 These are actual host LVGL renders, not photographs of the board, with the board's 30 px corner mask applied. The live overview, Tasks, Usage, Inbox and host-action frames use labelled synthetic fixtures. Board rendering and resource readings are reported separately.
 
+Page layout: a slim status bar (connection dot and text, battery) replaces the page title, which the segmented tab bar already shows; content fills y 38-260; a sliding filled pill marks the active tab and one hint line names the keys. The overview combines the pet card, three stat tiles for today (tokens, speed, cost) and the single task that matters most. Tasks and Inbox are four-row lists with the selection highlighted (OK moves it); Usage shows the same tiles above a three-row per-model list. Menus and dialogs keep their title layout.
+
 All on-screen copy is Simplified Chinese. Fixed copy is drawn with two subset fonts generated from the UI sources (`pet_font_ui_14` for status, tabs and key hints, `pet_font_ui_24` for titles and large numbers); dynamic task text keeps the GB2312 `pet_font_cjk_16`. Runtime status lines stay English in logs and are translated by `main/agent_pet_text.c`; `tests/test_agent_pet_text_coverage.py` fails when a runtime status lacks Chinese copy or a UI character lacks a glyph.
 
 ![Unpaired overview, actual LVGL host render](agent-pet-ui-now.png)
@@ -111,6 +113,19 @@ All on-screen copy is Simplified Chinese. Fixed copy is drawn with two subset fo
 ![Five-row scrolling menu, actual LVGL host render](agent-pet-ui-menu.png)
 ![Settings confirmation with Cancel as default, actual LVGL host render](agent-pet-ui-confirm.png)
 ![Open-on-computer dialog with fixture data, actual LVGL host render](agent-pet-ui-action.png)
+
+Menu › Theme switches between two original looks and is saved in NVS: a blue whale bitmap on a white page (`tools/agent_pet_whale.py`) and an orange pixel critter on a warm off-white page (`tools/agent_pet_critter.py`). Neither reproduces a vendor logo or mascot. Switching rebuilds the screen once under the LVGL lock.
+
+![Pixel critter theme overview with fixture data, actual LVGL host render](agent-pet-ui-now-claude.png)
+![Pixel critter theme task card with fixture data, actual LVGL host render](agent-pet-ui-tasks-claude.png)
+
+### Desk mode and pet behaviour
+
+After 20 seconds without a key on the overview, the device switches to desk mode: a 2x pet, today's tokens rolling up like an odometer in a 40 px numeric font, live decode speed and cost, the active task as a scrolling ticker and a 30-minute output-tokens bar chart (`usage.spark`, from Magpie's per-request times). Any key returns to the overview and does nothing else. The pet's mood comes from the pure `main/agent_pet_mood.c` (host-tested): idle breathing, faster motion with bubbles or sparks scaled by tokens/s while work is running, a bouncing "!" when a task needs a reply, and a confetti burst when a running task stops. Task-finished and needs-reply events slide down a banner. Particles and the bar chart are drawn by single custom-draw objects with per-particle invalidation at 25 fps; on the board a 60-second watch including desk mode kept at least 43.6 KB free heap (largest block 34.8 KB) with no allocation failures.
+
+![Desk mode with fixture data, actual LVGL host render](agent-pet-ui-desk.png)
+![Desk mode in the pixel critter theme with fixture data, actual LVGL host render](agent-pet-ui-desk-claude.png)
+![Task-finished banner with fixture data, actual LVGL host render](agent-pet-ui-toast.png)
 
 ## Device and data preservation
 

@@ -16,7 +16,7 @@ const mode=process.argv[3];
 const model=new Model({now:()=>Date.parse('2026-11-05T12:00:00Z')});
 const count=mode==='maximum'?16:2;
 for(let i=0;i<count;i++)model.ingest({source_id:'magpie',session_id:'session-'+i,run_id:'run-'+i,revision:1,title:i===0?'你好，鲸鱼 🐳':'Agent '+i,entity_kind:'turn',execution_state:'running',pending_interactions:i===0?[{request_id:'question-'+i,revision:1,blocks_execution:false}]:[],task_outcome:null});
-model.meter({id:'usage-session',revision:1,tokens:'900'});
+model.meter({id:'usage-session',revision:1,tokens:'900',scope:{source_id:'magpie',session_id:'session-0'},buckets:{input:100,output:200,cache_read:600,cache_write:0},model:'deepseek-v4-pro',decode:{tokens:770,ms:20000},money:{micros:'360000',currency:'CNY',provenance:'estimate'}});
 const publication=new Publication('contract-test');
 let frames=publication.snapshot(model.projection({publicMode:mode==='public'}));
 if(mode==='correction'){

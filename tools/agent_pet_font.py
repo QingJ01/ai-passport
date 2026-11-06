@@ -25,7 +25,9 @@ UI_SOURCES = ('main/main.c', 'main/agent_pet_text.c')
 # symbol, em pixels, weight axis, inventory
 FONTS = (('pet_font_cjk_16', 16, 400, 'gb2312'),
          ('pet_font_ui_14', 14, 500, 'ui'),
-         ('pet_font_ui_24', 24, 600, 'ui'))
+         ('pet_font_ui_24', 24, 600, 'ui'),
+         ('pet_font_num_40', 40, 600, 'digits'))
+# Desk-mode odometer: printable ASCII plus the full-width yuan sign.
 
 
 def inventory():
@@ -206,7 +208,8 @@ def main():
     data = SOURCE.read_bytes()
     assert hashlib.sha256(data).hexdigest() == SHA256, 'Source font checksum mismatch'
     available = source_coverage(data)
-    inventories = {'gb2312': inventory(), 'ui': ui_inventory()}
+    inventories = {'gb2312': inventory(), 'ui': ui_inventory(),
+                   'digits': sorted(set(range(32, 127)) | {0xFFE5})}
     all_stats = {}
     for symbol, size, weight, kind in FONTS:
         cps = inventories[kind]
@@ -219,6 +222,8 @@ def main():
         target = OUT/f'{symbol}.c'
         if symbol == 'pet_font_cjk_16':
             coverage_file, coverage_note = OUT/'coverage.txt', 'GB2312 + printable ASCII; see coverage.txt'
+        elif kind == 'digits':
+            coverage_file, coverage_note = OUT/'coverage-num.txt', 'odometer digits and units only; see coverage-num.txt'
         else:
             coverage_file, coverage_note = OUT/'coverage-ui.txt', 'UI copy subset + printable ASCII; see coverage-ui.txt'
         inventory_text = ''.join(f'U+{cp:04X}\n' for cp in cps)

@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import ESPProvision
+import NetworkExtension
 
 public class AgentPetProvisioningModule: Module {
   private var device: ESPDevice?
@@ -7,8 +8,15 @@ public class AgentPetProvisioningModule: Module {
   private var searching = false
   public func definition() -> ModuleDefinition {
     Name("AgentPetProvisioning")
-    AsyncFunction("request") { (url: String, method: String, token: String, body: String?, promise: Promise) in
-      _ = RelayRequest(url: url, method: method, token: token, body: body, promise: promise)
+    AsyncFunction("request") { (url: String, method: String, token: String, body: String?, pin: String?, promise: Promise) in
+      _ = RelayRequest(url: url, method: method, token: token, body: body, pin: pin, promise: promise)
+    }
+    // Best effort only: iOS returns nil unless the app has the Wi-Fi information entitlement and location access.
+    AsyncFunction("currentWifiName") { (promise: Promise) in
+      NEHotspotNetwork.fetchCurrent { network in
+        let name = network?.ssid
+        promise.resolve(name.flatMap { $0.isEmpty || $0.utf8.count > 32 ? nil : $0 })
+      }
     }
     AsyncFunction("connectSecure") { (name: String, pop: String, promise: Promise) in
       ESPProvisionManager.shared.enableLogs(false)

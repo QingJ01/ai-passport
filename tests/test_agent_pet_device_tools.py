@@ -7,6 +7,8 @@ import uuid
 from pathlib import Path
 import subprocess
 import unittest
+import tempfile
+import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('device_tools', ROOT / 'tools/agent_pet_device.py')
@@ -22,6 +24,7 @@ class FakePort:
         self.buffer = ''
         self.infolen = 0
         self.confirms = 0
+        self.link_requests = 0
         self.configured_after = configured_after
 
     def write(self, data):
@@ -37,6 +40,8 @@ class FakePort:
                            'network_count': 1 if self.infolen > self.configured_after else 0}
                 self.pending += (json.dumps({'v': 1, 'type': 'device.info',
                                              'payload': payload}) + '\n').encode()
+            elif document['type'] == 'link.request':
+                self.link_requests += 1
             elif document['type'] == 'setup':
                 self.confirms += 1
                 self.pending += (json.dumps({'v': 1, 'type': 'setup.result',
@@ -51,10 +56,28 @@ class FakePort:
         return chunk
 
 
+@unittest.skipUnless(shutil.which('node') and shutil.which('openssl'), 'Node.js and OpenSSL create the temporary bridge')
 class ProvisioningFlowTest(unittest.TestCase):
+    """Uses a throwaway bridge configuration, never the developer's .agent-pet/."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.directory = tempfile.TemporaryDirectory(prefix='agent-pet-provision-')
+        folder = Path(cls.directory.name) / 'bridge'
+        subprocess.run(['node', str(ROOT / 'services/src/setup.mjs'), str(folder)], check=True,
+                       capture_output=True)
+        cls.config = folder / 'config.json'
+        config = json.loads(cls.config.read_text())
+        config['public_endpoint'] = 'wss://mac.local:7443/v1/device'
+        cls.config.write_text(json.dumps(config))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.directory.cleanup()
+
     def test_payload_is_sent_and_confirmation_is_awaited(self):
         port = FakePort()
-        result = device.provision(port, ROOT / '.agent-pet/lan/config.json', 'HomeNet',
+        result = device.provision(port, self.config, 'HomeNet',
                                   'secret-pass', 3, 1, say=lambda *_: None)
         self.assertEqual(result['status'], 'configured')
         self.assertEqual(port.confirms, 1, 'exactly one setup frame is written')
@@ -63,7 +86,7 @@ class ProvisioningFlowTest(unittest.TestCase):
 
     def test_missing_confirmation_reports_timeout_without_claiming_success(self):
         port = FakePort(configured_after=10 ** 6)
-        result = device.provision(port, ROOT / '.agent-pet/lan/config.json', 'HomeNet',
+        result = device.provision(port, self.config, 'HomeNet',
                                   'secret-pass', 3, 1, say=lambda *_: None)
         self.assertEqual(result['status'], 'timeout_waiting_for_confirmation')
 
@@ -148,6 +171,29 @@ class DeviceToolsTest(unittest.TestCase):
         self.assertIsNone(device.bridge_frame(b'{"v":1,"type":"heartbeat"}', 'new-epoch'))
         self.assertIsNone(device.bridge_frame(b'[1]', 'new-epoch'))
         self.assertIsNone(device.bridge_frame(b'not json', 'new-epoch'))
+
+    def test_forwarder_uses_the_bind_address_not_the_bonjour_name(self):
+        lan = {'public_endpoint': 'wss://mac.local:7443/v1/device', 'bind': '192.168.5.3'}
+        self.assertEqual(device.local_endpoint(lan), 'wss://192.168.5.3:7443/v1/device')
+        loop = {'public_endpoint': 'wss://127.0.0.1:7443/v1/device', 'bind': '127.0.0.1'}
+        self.assertEqual(device.local_endpoint(loop), 'wss://127.0.0.1:7443/v1/device')
+        self.assertEqual(device.local_endpoint({'public_endpoint': 'wss://x.local:7443/v1/device'}),
+                         'wss://x.local:7443/v1/device')
+
+    def test_auto_port_picks_the_espressif_device(self):
+        class P:
+            def __init__(self, device, vid):
+                self.device, self.vid = device, vid
+        ports = [P('/dev/cu.Bluetooth', None), P('/dev/cu.usbserial', 0x0403), P('/dev/cu.usbmodem1101', 0x303A)]
+        self.assertEqual(device.find_port(ports), '/dev/cu.usbmodem1101')
+        self.assertIsNone(device.find_port(ports[:2]))
+
+    def test_link_request_waits_for_consent_on_the_device(self):
+        port = FakePort()
+        said = []
+        info = device.request_link(port, said.append, timeout=5)
+        self.assertEqual(info['usb_window_s'], 120)
+        self.assertTrue(port.link_requests >= 1, 'the device is asked before any data is sent')
 
     def test_advertised_ble_uuid_matches_qr_uuid(self):
         source = (ROOT / 'main/agent_pet_provisioning.c').read_text()

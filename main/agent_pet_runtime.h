@@ -17,10 +17,20 @@ bool pet_runtime_open_query(void);
 void pet_runtime_open_copy(pet_action_view_t *out);
 void pet_runtime_privacy(bool public_mode);
 void pet_runtime_setup_window(void);
+/* A computer on USB asked to link (link.request) within the last few seconds
+ * and no window is open: the UI shows a one-press consent prompt. */
+bool pet_runtime_link_requested(void);
+/* Decline: ignore further link requests for a minute. */
+void pet_runtime_link_dismiss(void);
+/* UI theme index persisted in NVS (0 = default). */
+uint8_t pet_runtime_theme(void);
+void pet_runtime_set_theme(uint8_t theme);
 /* Seconds left in the physical USB window, 0 when it is closed. */
 unsigned pet_runtime_setup_seconds(void);
 void pet_runtime_confirm(void);
 bool pet_runtime_setup_pending(void);
+/* The Wi-Fi name inside a pending USB setup, for the confirmation screen. */
+bool pet_runtime_setup_ssid(char *out,size_t capacity);
 void pet_runtime_cancel_setup(void);
 size_t pet_runtime_network_slots(char ssids[PET_NETWORK_MAX][33]);
 bool pet_runtime_network_slot(char *ssid,size_t capacity);

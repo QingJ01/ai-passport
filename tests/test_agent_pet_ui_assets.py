@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "docs/assets"
-FRAMES = ("now", "now-live", "tasks", "menu", "usage", "inbox", "confirm", "action")
+FRAMES = ("now", "now-live", "tasks", "menu", "usage", "inbox", "confirm", "action", "now-claude", "tasks-claude", "desk", "toast", "desk-claude", "link", "wifi")
 
 
 def text_chunks(path: Path) -> dict[str, str]:
@@ -51,7 +51,7 @@ def main() -> int:
         description = meta.get("Description", "")
         if not description.startswith("HOST LVGL RENDER"):
             problems.append(f"{path.name}: {name} preview lacks host-render provenance")
-        if name in {"now-live", "tasks", "usage", "inbox", "action"} and "SYNTHETIC FIXTURE" not in description:
+        if name in {"now-live", "tasks", "usage", "inbox", "action", "now-claude", "tasks-claude", "desk", "toast", "desk-claude", "wifi"} and "SYNTHETIC FIXTURE" not in description:
             problems.append(f"{path.name}: fixture frame must say it uses synthetic data")
     if problems:
         print("\n".join(problems), file=sys.stderr)

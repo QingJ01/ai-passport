@@ -1,4 +1,9 @@
 import { utf8Bytes } from "./provisioning.ts";
+import {
+  PIN_PATTERN,
+  TransportError,
+  type SecureRequest,
+} from "./transport.ts";
 export interface Service {
   transport?: "local" | "remote";
   endpoint: string | null;
@@ -56,21 +61,50 @@ export function freshness(updated: string | null, now = Date.now()) {
     ? "fresh"
     : "stale";
 }
+export interface RelayOptions {
+  // SHA-256 of the bridge's leaf certificate DER; replaces OS trust for every request.
+  pin?: string;
+  // Second address of the same bridge (LAN IP), tried when the first is unreachable.
+  fallbackOrigin?: string;
+}
 export class Relay {
   readonly origin: string;
+  readonly fallbackOrigin?: string;
+  readonly pin?: string;
+  private active: string;
   constructor(
     origin: string,
     private token: string,
-    private request: typeof fetch,
+    private request: SecureRequest,
+    options: RelayOptions = {},
   ) {
     this.origin = serviceURL(origin);
     if (!token.trim()) throw Error("Controller token required");
+    if (options.pin !== undefined && !PIN_PATTERN.test(options.pin))
+      throw Error(
+        "Certificate fingerprint must be 64 lowercase hex characters",
+      );
+    this.pin = options.pin;
+    if (options.fallbackOrigin) {
+      const fallback = serviceURL(options.fallbackOrigin);
+      if (fallback !== this.origin) this.fallbackOrigin = fallback;
+    }
+    this.active = this.origin;
   }
-  async call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  // The address that answered last; shown to the user and used for non-idempotent requests.
+  get address() {
+    return this.active;
+  }
+  private async attempt(
+    base: string,
+    path: string,
+    method: string,
+    body?: unknown,
+  ) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
     try {
-      const r = await this.request(this.origin + path, {
+      const init: RequestInit = {
         method,
         headers: {
           Authorization: `Bearer ${this.token}`,
@@ -79,20 +113,61 @@ export class Relay {
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
         redirect: "error",
-      });
-      if (!r.ok)
-        throw Error(
-          r.status === 401 || r.status === 403
-            ? "Session expired or access revoked"
-            : `Relay request failed (${r.status})`,
-        );
-      if (r.status === 204) return undefined as T;
-      const text = await r.text();
-      if (text.length > 262144) throw Error("Relay response too large");
-      return JSON.parse(text);
+      };
+      return await (this.pin === undefined
+        ? this.request(base + path, init)
+        : this.request(base + path, init, this.pin));
     } finally {
       clearTimeout(timer);
     }
+  }
+  private async send(path: string, method: string, body?: unknown) {
+    // Only GET falls back to the second address: a POST/DELETE whose reply was lost may already
+    // have been applied (for example a one-use enrollment ticket), so it is never replayed.
+    const bases =
+      method === "GET" && this.fallbackOrigin
+        ? [
+            this.active,
+            this.active === this.origin ? this.fallbackOrigin : this.origin,
+          ]
+        : [this.active];
+    let failure: unknown;
+    let pinFailed = false;
+    for (const base of bases) {
+      try {
+        const r = await this.attempt(base, path, method, body);
+        this.active = base;
+        return r;
+      } catch (e) {
+        if (e instanceof TransportError && e.kind === "request") throw e;
+        if (e instanceof TransportError && e.kind === "pin") pinFailed = true;
+        failure = e;
+      }
+    }
+    if (pinFailed)
+      throw new TransportError(
+        "pin",
+        "The computer's certificate fingerprint does not match the pairing code",
+      );
+    throw failure instanceof TransportError
+      ? failure
+      : new TransportError(
+          "network",
+          failure instanceof Error ? failure.message : "Network request failed",
+        );
+  }
+  async call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+    const r = await this.send(path, method, body);
+    if (!r.ok)
+      throw Error(
+        r.status === 401 || r.status === 403
+          ? "Session expired or access revoked"
+          : `Relay request failed (${r.status})`,
+      );
+    if (r.status === 204) return undefined as T;
+    const text = await r.text();
+    if (text.length > 262144) throw Error("Relay response too large");
+    return JSON.parse(text);
   }
   devices() {
     return this.call<{ devices: Device[] }>("/v1/devices");

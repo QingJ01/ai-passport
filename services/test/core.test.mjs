@@ -314,3 +314,29 @@ test("signed nonce time endpoint fixed encoding and no credentials", async () =>
     await new Promise((r) => server.close(r));
   }
 });
+
+test("source metrics reach the device projection; remote strips them", () => {
+  const m = new Model();
+  m.ingest(event({ session_id: "a", run_id: "magpie", revision: 1, title: "设计评审",
+    metrics: { tokens: 52340, rate: 38.46, cost: 0.364, currency: "USD", agent: "DeepSeek Harness" } }));
+  m.ingest(event({ session_id: "b", run_id: "magpie", revision: 1, title: "网站", execution_state: "idle",
+    metrics: { tokens: "12", rate: -1, cost: "free", currency: "EUR" } }));
+  m.ingest(event({ session_id: "c", run_id: "magpie", revision: 1, title: "坏数据", metrics: { tokens: "1e9" } }));
+  const local = m.projection();
+  const a = local.tasks.find((t) => t.title === "设计评审");
+  assert.deepEqual(a.metrics, { tokens: "52340", rate: "38.5", cost: "$0.36", cost_estimate: false, agent: "DeepSeek Harness" });
+  assert.deepEqual(local.tasks.find((t) => t.title === "网站").metrics,
+    { tokens: "12", rate: null, cost: null, cost_estimate: false, agent: null });
+  assert.equal(local.tasks.find((t) => t.title === "坏数据").metrics, undefined);
+  m.setSourceUsage({ period: "today", tokens: 16000000, cost: 102.4, currency: "USD", rate: 53.2 });
+  const u = m.projection().usage;
+  assert.equal(u.tokens, "16000000"); assert.equal(u.cost, "$102.4"); assert.equal(u.rate, "53.2");
+  assert.equal(u.provenance, "magpie-today");
+  assert.throws(() => m.setSourceUsage({ period: "week", tokens: 1 }), /source_usage/);
+  const remote = m.projection({ remote: true });
+  assert(remote.tasks.every((t) => !("metrics" in t)));
+  assert.equal(remote.usage.cost, undefined);
+  assert.equal(remote.usage.rate, undefined);
+  m.setSourceUsage({ period: "today", tokens: 5, cost: 0.004, currency: "CNY" });
+  assert.equal(m.projection().usage.cost, "<￥0.01");
+});

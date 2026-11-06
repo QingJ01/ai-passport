@@ -22,3 +22,5 @@ tools/ui_preview/source.json
 /.agents/skills/passport-build
 /.agents/skills/passport-device-test
 /.agents/skills/passport-debug
+# Local-only artwork overrides from tools/agent_pet_sprite.py (third-party logos stay on your machine).
+main/local/

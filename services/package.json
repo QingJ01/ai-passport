@@ -12,6 +12,7 @@
     "setup": "node src/setup.mjs"
   },
   "dependencies": {
+    "qrcode": "1.5.4",
     "ws": "8.22.1"
   }
 }

@@ -20,8 +20,18 @@ class AgentPetProvisioningModule : Module() {
   private var connecting = false
   override fun definition() = ModuleDefinition {
     Name("AgentPetProvisioning")
-    AsyncFunction("request") { url: String, method: String, token: String, body: String?, promise: Promise ->
-      RelayRequest.send(url, method, token, body, promise)
+    AsyncFunction("request") { url: String, method: String, token: String, body: String?, pin: String?, promise: Promise ->
+      RelayRequest.send(url, method, token, body, pin, promise)
+    }
+    // Best effort: Android reports the SSID only with location permission granted and location services on.
+    AsyncFunction("currentWifiName") {
+      val context = appContext.reactContext ?: return@AsyncFunction null
+      val wifi = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+        ?: return@AsyncFunction null
+      @Suppress("DEPRECATION")
+      val raw = try { wifi.connectionInfo?.ssid } catch (e: SecurityException) { null }
+      val name = raw?.removeSurrounding("\"")
+      if (name.isNullOrEmpty() || name == "<unknown ssid>" || name.toByteArray().size > 32) null else name
     }
     AsyncFunction("connectSecure") { name: String, pop: String, serviceUuid: String, promise: Promise ->
       close()

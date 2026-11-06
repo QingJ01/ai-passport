@@ -201,7 +201,57 @@ def bridge_frame(line, current_epoch):
     return value
 
 
-def forward(port, info, config_path, seconds, node):
+def find_port(ports=None):
+    """The first Espressif USB device (VID 0x303A), or None."""
+    if ports is None:
+        from serial.tools import list_ports
+        ports = list_ports.comports()
+    for p in ports:
+        if getattr(p, 'vid', None) == 0x303A:
+            return p.device
+    return None
+
+
+LINK_REQUEST = b'{"v":1,"type":"link.request"}\n'
+
+
+def request_link(port, say, timeout=None):
+    """Ask the device to show its one-press consent prompt until it is accepted."""
+    deadline = time.monotonic() + timeout if timeout else float('inf')
+    announced = False
+    while time.monotonic() < deadline:
+        port.write(LINK_REQUEST)
+        try:
+            info = query(port, seconds=2)
+        except RuntimeError:
+            continue
+        if isinstance(info.get('usb_window_s'), int) and info['usb_window_s'] > 0:
+            return info
+        if not announced:
+            say('设备上会弹出“电脑请求连接”，按 OK 允许。')
+            announced = True
+        time.sleep(1)
+    raise RuntimeError('Link was not accepted on the device.')
+
+
+def local_endpoint(configuration):
+    """The bridge as this computer reaches it: its bind address, not the name devices use.
+
+    Devices and phones resolve <name>.local over mDNS to the LAN address, but this
+    computer may resolve its own name to 127.0.0.1 or ::1, where a LAN-bound bridge
+    is not listening. TLS still verifies server_name, so the address does not matter.
+    """
+    endpoint = configuration['public_endpoint']
+    bind = configuration.get('bind')
+    if not bind or bind in ('0.0.0.0', '::'):
+        return endpoint
+    scheme, rest = endpoint.split('://', 1)
+    hostport, _, path = rest.partition('/')
+    port = hostport.rsplit(':', 1)[1] if ':' in hostport else '443'
+    return f'{scheme}://{bind}:{port}/{path}'
+
+
+def forward(port, info, config_path, seconds, node, watch_window=False):
     configuration = json.loads(config_path.read_text())
     directory = config_path.parent
     def local(name):
@@ -211,7 +261,7 @@ def forward(port, info, config_path, seconds, node):
     if info['device_id'] != credentials['device_id']:
         raise RuntimeError('Device identity does not match this local bridge credential. Pair explicitly before forwarding.')
     configuration_frame = {
-        'url': configuration['public_endpoint'],
+        'url': local_endpoint(configuration),
         'credential': credentials['device_credential'],
         'ca_pem': local('tls_cert').read_text(),
         'server_name': configuration.get('server_name', ''),
@@ -233,8 +283,12 @@ def forward(port, info, config_path, seconds, node):
         process.stdin.flush()
         configuration_frame['credential'] = ''
         selector.register(process.stdout, selectors.EVENT_READ)
-        deadline = time.monotonic() + seconds
+        deadline = time.monotonic() + seconds if seconds else float('inf')
+        next_check = time.monotonic() + 5
         while time.monotonic() < deadline:
+            if watch_window and time.monotonic() >= next_check:
+                port.write(b'{"v":1,"type":"device.info"}\n')
+                next_check = time.monotonic() + 5
             ready = selector.select(0.1)
             for key, _ in ready:
                 chunk = os.read(key.fileobj.fileno(), 4096)
@@ -257,6 +311,10 @@ def forward(port, info, config_path, seconds, node):
             # Firmware actions are forwarded over the existing authenticated
             # connection. Logs and setup/auth messages never leave the host.
             for serial_line in serial_lines.feed(port.read(512)):
+                if watch_window:
+                    state = info_reply(serial_line)
+                    if state is not None and not state.get('usb_window_s'):
+                        raise RuntimeError('USB link closed on the device.')
                 command = upstream_command(serial_line)
                 if command is None:
                     continue
@@ -280,6 +338,8 @@ def forward(port, info, config_path, seconds, node):
         except subprocess.TimeoutExpired:
             process.kill()
             process.communicate()
+    if watch_window:
+        return frames
     after = query(port)
     print(json.dumps({'forwarded_frames': frames, 'forwarded_commands': commands,
                       'dropped_stale_frames': stale, 'device_after': after}, ensure_ascii=False))
@@ -357,22 +417,30 @@ def _signing_public(folder: Path, config: dict) -> Path:
 
 
 def current_ssid() -> str:
-    try:
-        result = subprocess.run(['networksetup', '-getairportnetwork', 'en0'],
-                                capture_output=True, text=True, timeout=5)
-        marker = 'Current Wi-Fi Network: '
-        if result.stdout.startswith(marker):
-            return result.stdout[len(marker):].strip()
-    except (OSError, subprocess.SubprocessError):
-        pass
+    """This Mac's Wi-Fi name, or '' when the OS hides it (then the person types it)."""
+    probes = ((['networksetup', '-getairportnetwork', 'en0'], 'Current Wi-Fi Network: '),
+              (['ipconfig', 'getsummary', 'en0'], ' SSID : '))
+    for command, marker in probes:
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for line in result.stdout.splitlines():
+            if marker in line:
+                name = line.split(marker, 1)[1].strip()
+                if name and name != '<redacted>' and len(name.encode()) <= 32:
+                    return name
     return ''
 
 
 def provision(port, config_path: Path, ssid: str, password: str, window_seconds: int,
               confirm_seconds: int, say=print) -> dict:
-    """Write one locally built setup payload to a device that has a physical window."""
+    """Write one locally built setup payload after one-press consent on the device."""
     folder = config_path.parent
     config = json.loads(config_path.read_text())
+    host = config['public_endpoint'].split('://', 1)[-1].split('/', 1)[0].rsplit(':', 1)[0]
+    if host in ('127.0.0.1', 'localhost', '::1'):
+        raise RuntimeError('电脑端还没有开启局域网模式，设备连上 Wi-Fi 也找不到电脑。请用 tools/agent_pet_up.sh wifi，它会自动开启。')
     credentials = json.loads(_asset(folder, config, 'credentials').read_text())
     message = build_setup_message(
         ssid=ssid, password=password, endpoint=config['public_endpoint'],
@@ -383,8 +451,8 @@ def provision(port, config_path: Path, ssid: str, password: str, window_seconds:
         time_issuer=config.get('time_issuer', ''),
         enrollment_key_pem=_signing_public(folder, config).read_text(),
         utc_seconds=int(time.time()))
-    info = wait_for_window(port, window_seconds)
-    say(f"窗口已打开（还剩 {info.get('usb_window_s', 0)} 秒），正在发送配置…")
+    info = request_link(port, say, timeout=window_seconds or None)
+    say(f'已允许，正在把 Wi-Fi「{ssid}」发给设备…')
     port.write(message.encode('utf-8') + b'\n')
     port.flush()
     reader = Lines()
@@ -404,7 +472,7 @@ def provision(port, config_path: Path, ssid: str, password: str, window_seconds:
         raise RuntimeError('设备没有回应配置请求；请确认已打开 USB 窗口后重试。')
     if status != 'confirm_on_device':
         raise RuntimeError(f'设备拒绝了配置（{status}）；没有写入任何设置。')
-    say('设备已收到配置。现在在设备上按 OK 确认（长按 OK 取消）。')
+    say(f'设备屏幕会问“连接 Wi-Fi「{ssid}」？”，按 OK 确认（长按取消）。')
     deadline = time.monotonic() + confirm_seconds
     last = {}
     while time.monotonic() < deadline:
@@ -415,8 +483,11 @@ def provision(port, config_path: Path, ssid: str, password: str, window_seconds:
             if value:
                 last = value
         if last.get('configured') and (last.get('network_count') or 0) > 0:
+            say('✓ 设备已连上 Wi-Fi 并找到了电脑，以后不插线也能用。')
             return {'status': 'configured', 'device': last}
         time.sleep(1)
+    say('设备没能完成连接：常见原因是 Wi-Fi 密码不对、设备离路由器太远，'
+        '或者路由器是 5 GHz 专用（设备只支持 2.4 GHz）。原来的设置没有改变，可以再试一次。')
     return {'status': 'timeout_waiting_for_confirmation', 'device': last}
 
 
@@ -449,10 +520,54 @@ def preflight_summary(config_path: Path, ssid: str, password: str) -> dict:
     }
 
 
+def link(port_arg, config_path, node, say=lambda text: print(text, file=sys.stderr, flush=True)):
+    """Resident mode: find the device, ask for consent, stream until unplugged, repeat."""
+    waiting_said = False
+    while True:
+        path = port_arg if port_arg != 'auto' else find_port()
+        if not path:
+            if not waiting_said:
+                say('等待 Agent Pet 插上 USB…')
+                waiting_said = True
+            time.sleep(2)
+            continue
+        waiting_said = False
+        try:
+            with open_port(path) as port:
+                say('已找到设备，正在连接。')
+                state = query(port, seconds=10)
+                if state.get('configured'):
+                    # A Wi-Fi device reaches the bridge itself: USB is only a fallback.
+                    say('设备已设置 Wi-Fi，USB 作为备用：设备离线超过 1 分钟才会请求连接。')
+                    offline_since = None
+                    while True:
+                        time.sleep(15)
+                        state = query(port, seconds=4)
+                        if state.get('source_fresh'):
+                            offline_since = None
+                        elif offline_since is None:
+                            offline_since = time.monotonic()
+                        elif time.monotonic() - offline_since > 60:
+                            break
+                info = request_link(port, say)
+                say('已允许，开始实时同步。拔掉 USB 或按 Ctrl-C 停止。')
+                forward(port, info, config_path, None, node, watch_window=True)
+                say('电脑端服务断开，5 秒后重试。')
+                time.sleep(5)
+        except KeyboardInterrupt:
+            return 0
+        except RuntimeError as error:
+            say(f'{error} 正在重新连接。')
+            time.sleep(2)
+        except (OSError, ValueError):
+            say('设备已断开，等待重新插上。')
+            time.sleep(2)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['info', 'watch', 'stream', 'preflight', 'provision'])
-    parser.add_argument('--port', required=True)
+    parser.add_argument('operation', choices=['info', 'watch', 'stream', 'preflight', 'provision', 'link'])
+    parser.add_argument('--port', default='auto', help="serial port, or 'auto' for the first Espressif device")
     parser.add_argument('--config', type=Path, default=ROOT / '.agent-pet/config.json')
     parser.add_argument('--seconds', type=int, default=30)
     parser.add_argument('--window-timeout', type=int, default=120, help='Read-only wait for physical consent; 0 waits until the user opens the window')
@@ -472,6 +587,13 @@ def main():
         print('即将打开串口：设备会复位一次，当前窗口会失效。')
         print('等这里出现 “Open the physical USB setup window on the device now.” 之后再按键。',
               file=sys.stderr, flush=True)
+    if args.operation == 'link':
+        try:
+            return link(args.port, args.config.resolve(), args.node)
+        except KeyboardInterrupt:
+            return 0
+    if args.port == 'auto':
+        args.port = find_port() or parser.error('no Espressif USB device found; pass --port')
     try:
         with open_port(args.port) as port:
             if args.operation == 'provision':

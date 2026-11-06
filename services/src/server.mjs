@@ -82,6 +82,11 @@ export function createService({
         model.identities = new Map(saved.identities ?? []);
         model.records = new Map(saved.records);
         model.lastSeen = saved.lastSeen;
+        try {
+          model.setSourceUsage(saved.sourceUsage ?? null);
+        } catch {
+          model.sourceUsage = null;
+        }
         model.connected = false;
       }
       models.set(k, model);
@@ -153,6 +158,7 @@ export function createService({
       identities: [...model.identities],
       records: [...model.records],
       lastSeen: model.lastSeen,
+      sourceUsage: model.sourceUsage,
     };
     store.save();
   };
@@ -701,8 +707,10 @@ export function createService({
         });
       if (req.method !== "POST") throw new Error("method");
       if (req.url === "/v1/source/heartbeat") {
+        if (b.usage !== undefined) model.setSourceUsage(b.usage);
         model.connected = b.connected === true;
         model.lastSeen = now();
+        if (b.usage !== undefined) persistModel(c.account_id, c.source_id, model);
         if (!model.connected) capabilities.set(sourceKey, false);
         increment(counterGroup, "accepted");
         return reply(res, 200, { accepted: true });
@@ -774,6 +782,7 @@ export function createService({
         "usage",
         "task_capacity",
         "meter_capacity",
+        "source_usage",
         "forbidden",
         "unauthorized",
       ]);

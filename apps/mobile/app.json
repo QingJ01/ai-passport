@@ -10,7 +10,8 @@
       "bundleIdentifier": "dev.agentpet.companion",
       "supportsTablet": false,
       "infoPlist": {
-        "NSBluetoothAlwaysUsageDescription": "Securely configure your AI Passport during its setup window."
+        "NSBluetoothAlwaysUsageDescription": "Securely configure your AI Passport during its setup window.",
+        "NSLocalNetworkUsageDescription": "Connect to the Agent Pet bridge running on your computer on this Wi-Fi network."
       }
     },
     "android": {

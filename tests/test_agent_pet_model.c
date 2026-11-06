@@ -29,5 +29,24 @@ int main(void){
     text="{\"n\":4294967296}";uint32_t n;assert(pet_json_parse(&j,text,strlen(text)));assert(!pet_json_uint(&j,pet_json_field(&j,0,"n"),&n));
     text="{\"text\":\"x\",\"text\":\"y\"}";assert(!pet_json_parse(&j,text,strlen(text)));
     char huge[4097];memset(huge,' ',sizeof(huge));assert(!pet_json_parse(&j,huge,sizeof(huge)));
+    /* Optional metrics: validated strings, absent/null clears, malformed resyncs. */
+    pet_model_init(&m,"e");snapshot();
+    assert(frame("state.delta",5,"{\"ops\":[{\"op\":\"task.upsert\",\"task\":{\"id\":\"a\",\"title\":\"W\",\"state\":\"running\",\"execution_state\":\"running\",\"metrics\":{\"tokens\":\"52340\",\"rate\":\"38.5\",\"cost\":\"\\uffe50.36\",\"cost_estimate\":true,\"agent\":\"DeepSeek\"}}},{\"op\":\"usage.replace\",\"usage\":{\"tokens\":\"900\",\"provenance\":\"host\",\"cost\":\"\\uffe51.20\",\"cost_estimate\":false,\"rate\":\"12\",\"models\":[{\"name\":\"deepseek-flash\",\"tokens\":\"12300000\",\"cost\":\"$84.17\",\"rate\":\"53.2\"},{\"name\":\"gpt-6.1-sol\",\"tokens\":null,\"cost\":null,\"rate\":null}]}}]}")==PET_APPLIED);
+    assert(m.current.model_count==2&&!strcmp(m.current.models[0].name,"deepseek-flash")&&!strcmp(m.current.models[0].tokens,"12300000")&&!strcmp(m.current.models[0].cost,"$84.17")&&!m.current.models[1].tokens[0]);
+    assert(!strcmp(m.current.tasks[0].tokens,"52340")&&!strcmp(m.current.tasks[0].rate,"38.5")&&!strcmp(m.current.tasks[0].cost,"￥0.36")&&m.current.tasks[0].cost_estimate&&!strcmp(m.current.tasks[0].agent,"DeepSeek"));
+    assert(!strcmp(m.current.cost,"￥1.20")&&!m.current.cost_estimate&&!strcmp(m.current.rate,"12"));
+    assert(frame("state.delta",6,"{\"ops\":[{\"op\":\"task.upsert\",\"task\":{\"id\":\"a\",\"title\":\"W\",\"state\":\"running\",\"execution_state\":\"idle\",\"metrics\":{\"tokens\":null,\"rate\":null}}}]}")==PET_APPLIED);
+    assert(!m.current.tasks[0].tokens[0]&&!m.current.tasks[0].rate[0]&&!m.current.tasks[0].cost[0]);
+    assert(frame("state.delta",7,"{\"ops\":[{\"op\":\"task.upsert\",\"task\":{\"id\":\"a\",\"title\":\"W\",\"state\":\"running\",\"execution_state\":\"idle\",\"metrics\":{\"tokens\":\"12a\"}}}]}")==PET_RESYNC);
+    pet_model_init(&m,"e");snapshot();
+    assert(frame("state.delta",5,"{\"ops\":[{\"op\":\"usage.replace\",\"usage\":{\"tokens\":\"9\",\"models\":[{\"tokens\":\"1\"}]}}]}")==PET_RESYNC);
+    pet_model_init(&m,"e");snapshot();
+    assert(frame("state.delta",5,"{\"ops\":[{\"op\":\"task.upsert\",\"task\":{\"id\":\"a\",\"title\":\"W\",\"state\":\"running\",\"execution_state\":\"idle\",\"metrics\":{\"rate\":\"fast\"}}}]}")==PET_RESYNC);
+    pet_model_init(&m,"e");snapshot();
+    assert(frame("state.delta",5,"{\"ops\":[{\"op\":\"task.upsert\",\"task\":{\"id\":\"a\",\"title\":\"W\",\"state\":\"running\",\"execution_state\":\"idle\",\"metrics\":[]}}]}")==PET_RESYNC);
+    pet_model_init(&m,"e");snapshot();
+    assert(frame("state.delta",5,"{\"ops\":[{\"op\":\"usage.replace\",\"usage\":{\"tokens\":\"900\",\"spark\":[0,5,120000]}}]}")==PET_APPLIED);
+    assert(m.current.spark_count==3&&m.current.spark[2]==120000&&m.current.model_count==0);
+    assert(frame("state.delta",6,"{\"ops\":[{\"op\":\"usage.replace\",\"usage\":{\"tokens\":\"900\",\"spark\":[-1]}}]}")==PET_RESYNC);
     assert(sizeof(pet_model_t)<40000);printf("Agent Pet state/protocol tests passed (%zu-byte model)\n",sizeof(pet_model_t));return 0;
 }

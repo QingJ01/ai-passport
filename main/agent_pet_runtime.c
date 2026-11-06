@@ -46,7 +46,8 @@ static TaskHandle_t worker;
 static nvs_handle_t store;
 static bool storage_ready,network_ready,wifi_up,trial,trial_snapshot;
 static bool candidate_initialized,candidate_queued,pending,confirmed;
-static bool reconnect,privacy_save,rx_ready,rx_bad,fragmented,serial_discard;
+static bool reconnect,privacy_save,rx_ready,rx_bad,fragmented,serial_discard,theme_save;
+static uint8_t ui_theme;
 static bool authenticated,pause_requested,pause_acknowledged,cancel_requested,cancel_processing;
 static volatile bool pending_wifi_up;
 static uint32_t trial_started,auth_started,last_received,setup_until;
@@ -76,6 +77,10 @@ static uint32_t millis(void){return (uint32_t)(esp_timer_get_time()/1000);}
 static void notify(uint32_t bits){if(worker)xTaskNotify(worker,bits,eSetBits);}
 static void epoch(char *out){snprintf(out,65,"%08lx%08lx%08lx%08lx",(unsigned long)esp_random(),(unsigned long)esp_random(),(unsigned long)esp_random(),(unsigned long)esp_random());}
 static bool window_open(void){return setup_until!=0&&(int32_t)(setup_until-millis())>0;}
+/* A computer asked to link over USB (link.request); the UI offers one-press consent. */
+static uint32_t link_request_ms,link_muted_until;
+#define PET_LINK_REQUEST_MS 5000u
+#define PET_LINK_KEEPALIVE_MS 30000u
 static void status(const char*s){xSemaphoreTake(lock,portMAX_DELAY);snprintf(status_text,sizeof(status_text),"%s",s);xSemaphoreGive(lock);}
 static pet_task_t *action_target(void){for(unsigned i=0;i<model.current.task_count;i++)if(!strcmp(model.current.tasks[i].id,host_action.target_id))return &model.current.tasks[i];return NULL;}
 static bool action_channel(void){return config.mode==PET_TRANSPORT_LOCAL&&!model.public_mode&&!trial&&!pause_requested&&!cancel_requested&&!cancel_processing&&model.current.valid&&!model.synchronizing&&(window_open()||(authenticated&&connection_mode==PET_TRANSPORT_LOCAL));}
@@ -145,9 +150,15 @@ void pet_runtime_copy(pet_runtime_view_t*out,char*s,size_t cap){
 void pet_runtime_privacy(bool pub){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);char e[65];epoch(e);pet_model_privacy(&model,pub,e);pet_action_hide_private(&host_action);action_command_pending=false;serial_policy_pending=window_open();rx_ready=false;rx_len=0;fragmented=false;memset(rx,0,sizeof(rx));memset(serial_line,0,sizeof(serial_line));serial_len=0;serial_discard=true;privacy_save=true;reconnect=true;xSemaphoreGive(lock);notify(EV_WAKE);}
 /* Reopening an open window only extends it: a new epoch would discard the
  * projection the computer is already streaming and force a full resync. */
-void pet_runtime_setup_window(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);if(!trial){if(window_open())setup_until=millis()+120000;else{clear_candidate();setup_until=millis()+120000;fresh_view();reconnect=true;}snprintf(status_text,sizeof(status_text),"USB setup: 120 seconds");}xSemaphoreGive(lock);notify(EV_WAKE);}
+uint8_t pet_runtime_theme(void){if(!lock)return ui_theme;xSemaphoreTake(lock,portMAX_DELAY);uint8_t value=ui_theme;xSemaphoreGive(lock);return value;}
+/* Saved by the worker task; the UI never blocks on NVS. */
+void pet_runtime_set_theme(uint8_t value){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);ui_theme=value;theme_save=true;xSemaphoreGive(lock);notify(EV_WAKE);}
+bool pet_runtime_link_requested(void){if(!lock)return false;xSemaphoreTake(lock,portMAX_DELAY);bool yes=link_request_ms&&!window_open()&&millis()-link_request_ms<PET_LINK_REQUEST_MS;xSemaphoreGive(lock);return yes;}
+void pet_runtime_link_dismiss(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);link_request_ms=0;link_muted_until=millis()+60000;xSemaphoreGive(lock);}
+void pet_runtime_setup_window(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);link_request_ms=0;if(!trial){if(window_open())setup_until=millis()+120000;else{clear_candidate();setup_until=millis()+120000;fresh_view();reconnect=true;}snprintf(status_text,sizeof(status_text),"USB setup: 120 seconds");}xSemaphoreGive(lock);notify(EV_WAKE);}
 unsigned pet_runtime_setup_seconds(void){if(!lock)return 0;xSemaphoreTake(lock,portMAX_DELAY);int32_t remaining=(int32_t)(setup_until-millis());unsigned seconds=setup_until&&remaining>0?((uint32_t)remaining+999)/1000:0;xSemaphoreGive(lock);return seconds;}
 void pet_runtime_confirm(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);if(pending&&window_open())confirmed=true;xSemaphoreGive(lock);notify(EV_WAKE);}
+bool pet_runtime_setup_ssid(char *out,size_t capacity){if(!lock||!out||!capacity)return false;xSemaphoreTake(lock,portMAX_DELAY);bool yes=pending&&candidate.has_network&&candidate.network.ssid[0];snprintf(out,capacity,"%s",yes?candidate.network.ssid:"");xSemaphoreGive(lock);return yes;}
 bool pet_runtime_setup_pending(void){if(!lock)return false;xSemaphoreTake(lock,portMAX_DELAY);bool yes=pending&&window_open();xSemaphoreGive(lock);return yes;}
 void pet_runtime_cancel_setup(void){if(!lock)return;xSemaphoreTake(lock,portMAX_DELAY);cancel_requested=true;xSemaphoreGive(lock);notify(EV_WAKE);}
 void pet_runtime_settings_action(pet_settings_action_t action){if(!lock||action<1||action>4)return;xSemaphoreTake(lock,portMAX_DELAY);settings_action=action;xSemaphoreGive(lock);notify(EV_WAKE);}
@@ -263,7 +274,7 @@ static void dispatch_action(void){
 }
 static bool persist(const pet_config_t *value){if(!storage_ready||!pet_config_valid(value)||nvs_set_blob(store,"config2",value,sizeof(*value))!=ESP_OK)return false;esp_err_t e=nvs_erase_key(store,"config");return (e==ESP_OK||e==ESP_ERR_NVS_NOT_FOUND)&&nvs_commit(store)==ESP_OK;}
 static void acknowledge(const char*result){char b[128];int n=snprintf(b,sizeof(b),"{\"v\":1,\"type\":\"setup.result\",\"payload\":{\"status\":\"%s\"}}\n",result);serial_write_packet(b,n,pdMS_TO_TICKS(20));}
-static int serial_kind(const char*s,size_t n){pet_json_t j;uint32_t v;char type[32];if(!pet_json_parse(&j,s,n)||!pet_json_uint(&j,pet_json_field(&j,0,"v"),&v)||v!=1||!pet_json_string(&j,pet_json_field(&j,0,"type"),type,sizeof(type)))return -1;return !strcmp(type,"device.info")?0:!strcmp(type,"setup")?1:2;}
+static int serial_kind(const char*s,size_t n){pet_json_t j;uint32_t v;char type[32];if(!pet_json_parse(&j,s,n)||!pet_json_uint(&j,pet_json_field(&j,0,"v"),&v)||v!=1||!pet_json_string(&j,pet_json_field(&j,0,"type"),type,sizeof(type)))return -1;return !strcmp(type,"device.info")?0:!strcmp(type,"setup")?1:!strcmp(type,"link.request")?3:2;}
 static void device_info(void){
     int32_t remaining=(int32_t)(setup_until-millis());unsigned seconds=setup_until&&remaining>0?((uint32_t)remaining+999)/1000:0;
     const pet_transport_config_t*p=&config.transport[config.mode];
@@ -287,9 +298,16 @@ static void serial_process(bool provisioning){
                 if(!serial_discard&&serial_len){serial_line[serial_len]=0;int kind=serial_kind(serial_line,serial_len);
                     if(kind==0)device_info();
                     else if(provisioning||pause_requested||trial||cancel_requested||cancel_processing)acknowledge("busy");
+                    else if(kind==3){
+                        /* Ask the person; never open the window from the host side. */
+                        if(!window_open()&&(int32_t)(millis()-link_muted_until)>=0)link_request_ms=millis()|1u;
+                        acknowledge(window_open()?"link_open":"confirm_on_device");
+                    }
                     else if(!window_open())acknowledge("setup_window_required");
                     else if(kind==1){if(pet_config_parse_setup(serial_line,serial_len,&candidate)&&pet_config_network_slot(&config,&candidate)>=0){candidate_initialized=true;pending=true;confirmed=false;snprintf(status_text,sizeof(status_text),"Setup received: press OK");acknowledge("confirm_on_device");}else{clear_candidate();acknowledge("invalid_configuration_or_slot");}}
-                    else if(kind==2){pet_result_t r=pet_model_ingest(&model,serial_line,serial_len,millis());if(r==PET_ACTION_CONTROL)ingest_action_frame(serial_line,serial_len);if(r==PET_REJECTED||r==PET_RESYNC)acknowledge("rejected");}
+                    else if(kind==2){pet_result_t r=pet_model_ingest(&model,serial_line,serial_len,millis());if(r==PET_ACTION_CONTROL)ingest_action_frame(serial_line,serial_len);if(r==PET_REJECTED||r==PET_RESYNC)acknowledge("rejected");
+                        /* An accepted link stays open while the computer keeps streaming. */
+                        if(r!=PET_REJECTED){uint32_t keep=millis()+PET_LINK_KEEPALIVE_MS;if((int32_t)(keep-setup_until)>0)setup_until=keep;}}
                     else acknowledge("rejected");
                 }
                 memset(serial_line,0,sizeof(serial_line));serial_len=0;serial_discard=false;
@@ -363,10 +381,12 @@ static void runtime(void*arg){
         if(client&&authenticated&&now-last_received>45000){restart=true;model.current.source_fresh=false;snprintf(status_text,sizeof(status_text),"Service data stale; reconnecting");}
         revalidate_action();pet_model_tick(&model,now);if(model.needs_resync){if(usb)serial_resync_pending=true;restart=true;model.needs_resync=false;model.last_frame_ms=now;}
         bool save_privacy=privacy_save;privacy_save=false;bool pub=model.public_mode;
+        bool save_theme=theme_save;theme_save=false;uint8_t chosen_theme=ui_theme;
         pet_settings_action_t action=settings_action;settings_action=0;
         xSemaphoreGive(lock);
         if(cancel){stop_client();xSemaphoreTake(lock,portMAX_DELAY);trial=false;trial_snapshot=false;clear_candidate();fresh_view();cancel_processing=false;privacy_save=privacy_save||save_privacy;if(action)settings_action=action;xSemaphoreGive(lock);network_index=config.active_network;if(config.network_count)connect_wifi(&config.networks[network_index]);else if(network_ready)esp_wifi_disconnect();next_connect=now+1000;status("Setup cancelled; settings retained");continue;}
         if(save_privacy&&storage_ready&&(nvs_set_u8(store,"public",pub?1:0)!=ESP_OK||nvs_commit(store)!=ESP_OK))status("Privacy setting save failed");
+        if(save_theme&&storage_ready&&(nvs_set_u8(store,"theme",chosen_theme)!=ESP_OK||nvs_commit(store)!=ESP_OK))status("Theme setting save failed");
         if(configure_view&&client&&!restart&&!ble&&!usb)configure_local_view();
         if(action){if(storage_ready&&!ble)apply_settings(action);else status("Settings unavailable during setup");continue;}
         if(ble&&!was_ble)pet_runtime_phase("ble-window");
@@ -434,7 +454,7 @@ void pet_runtime_start(void){
     const esp_app_desc_t *app=esp_app_get_description();for(unsigned i=0;i<32;i++)snprintf(firmware_sha+i*2,3,"%02x",app->app_elf_sha256[i]);
     char e[65];epoch(e);pet_model_init(&model,e);config.version=PET_CONFIG_VERSION;
     storage_ready=nvs_flash_init()==ESP_OK&&nvs_open("agentpet",NVS_READWRITE,&store)==ESP_OK;
-    if(storage_ready){load_config();uint8_t pub=0;if(nvs_get_u8(store,"public",&pub)==ESP_OK&&pub)model.public_mode=true;}
+    if(storage_ready){load_config();uint8_t pub=0;if(nvs_get_u8(store,"public",&pub)==ESP_OK&&pub)model.public_mode=true;uint8_t th=0;if(nvs_get_u8(store,"theme",&th)==ESP_OK)ui_theme=th;}
     network_ready=start_network();
     epoch(device_boot_id);pet_action_init(&host_action,device_boot_id);
     usb_serial_jtag_driver_config_t u={.tx_buffer_size=1024,.rx_buffer_size=4608};

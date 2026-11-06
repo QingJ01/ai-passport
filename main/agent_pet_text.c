@@ -3,6 +3,8 @@
 #include <string.h>
 
 typedef struct { const char *source, *text; } pet_text_pair_t;
+/* Currency glyphs the bridge may send in cost strings; listed so the UI subset
+ * fonts include them: ￥ $ */
 
 /* Runtime status lines (English, also used in logs) and their screen copy.
  * tests/test_agent_pet_text_coverage.py fails when a runtime literal is missing. */
@@ -33,6 +35,7 @@ static const pet_text_pair_t statuses[]={
     {"Network unavailable; USB works","网络不可用，USB 仍可用"},
     {"Phone setup unavailable; try USB","手机配对不可用，请用 USB"},
     {"Privacy setting save failed","隐私设置保存失败"},
+    {"Theme setting save failed","主题保存失败"},
     {"Storage unavailable; not erased","存储不可用，数据未清除"},
     {"TLS/service start failed","无法建立安全连接"},
     {"Testing candidate network/service","正在测试新网络"},
@@ -89,6 +92,7 @@ const char *pet_text_provenance(const char *p){
     if(!p||!p[0]||!strcmp(p,"unavailable"))return "暂无来源";
     if(!strcmp(p,"host-reduced-records"))return "电脑端汇总";
     if(!strcmp(p,"hidden"))return "已隐藏";
+    if(!strcmp(p,"magpie-today"))return "Magpie 今日统计";
     return NULL;
 }
 
@@ -109,4 +113,26 @@ void pet_text_group_digits(const char *s,char *out,size_t cap){
         out[o++]=s[i];
     }
     out[o]=0;
+}
+
+void pet_text_compact_count(const char *s,char *out,size_t cap){
+    if(!out||!cap)return;
+    size_t n=s?strlen(s):0;
+    if(n<=3){pet_text_group_digits(s,out,cap);return;}
+    for(size_t i=0;i<n;i++)if(s[i]<'0'||s[i]>'9'){snprintf(out,cap,"%s",s);return;}
+    /* K from 1e3, M from 1e6, B from 1e9; one decimal, truncated not rounded. */
+    size_t whole=n>9?n-9:n>6?n-6:n-3;const char *unit=n>9?"B":n>6?"M":"K";
+    if(whole>3&&n>9){if(whole>12){snprintf(out,cap,"%s",s);return;}}
+    char head[16];memcpy(head,s,whole);head[whole]=0;
+    if(whole<3&&s[whole]!='0')snprintf(out,cap,"%s.%c%s",head,s[whole],unit);
+    else snprintf(out,cap,"%s%s",head,unit);
+}
+
+void pet_text_task_metrics(const pet_task_t *t,char *out,size_t cap){
+    if(!out||!cap)return;
+    out[0]=0;if(!t)return;
+    size_t used=0;char count[24];
+    if(t->tokens[0]){pet_text_compact_count(t->tokens,count,sizeof(count));used+=(size_t)snprintf(out+used,cap-used,"%s Token",count);}
+    if(t->rate[0]&&used<cap)used+=(size_t)snprintf(out+used,cap-used,"%s%s t/s",used?"・":"",t->rate);
+    if(t->cost[0]&&used<cap)snprintf(out+used,cap-used,"%s费用 %s%s",used?"\n":"",t->cost_estimate?"约":"",t->cost);
 }

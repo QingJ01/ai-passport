@@ -25,6 +25,10 @@ The [official source font](fonts/agent-pet/source/NotoSansSC-wght.ttf) comes fro
 
 The same generator also emits two subset fonts for fixed UI copy: `pet_font_ui_14` (14 px, weight 500) and `pet_font_ui_24` (24 px, weight 600). Their inventory is printable ASCII plus every non-ASCII character written in `main/main.c` and `main/agent_pet_text.c` ([coverage-ui.txt](fonts/agent-pet/coverage-ui.txt)); [metrics.json](fonts/agent-pet/metrics.json) records all three fonts. After changing on-screen copy, rerun `python tools/agent_pet_font.py`; `--check` fails if a subset is stale. The two subsets add about 60 KB of Flash tables.
 
+### Local pet artwork override
+
+`tools/agent_pet_sprite.py` turns artwork you are entitled to use (by default the app icon of a locally installed DeepSeek Harness) into a cute animated pixel pet for the whale theme under `main/local/`, which is gitignored. It rasterises the silhouette onto a 56x36 grid with a half-transparent soft edge instead of an outline, adds shading, a light belly from the artwork's cut-outs, a big highlighted eye and blush, and derives seven frames (rest, tail up/down, blink, happy, alert, squash) that the firmware switches by mood; the generic renderer draws them from `main/pet_pixel.h` grids, scaled to each layout's width. When `main/local/pet_whale_override.c` exists the firmware build uses it instead of the original whale and prints a "LOCAL whale override" notice; delete the folder to return to the original. Third-party logos stay on your machine: never commit the generated files or distribute firmware built with them. Repository previews always show the original artwork.
+
 ## Images
 
 Store reusable source images and generated display assets in `images/`.

@@ -63,6 +63,32 @@
 
 运行与等待独立。轮次结束只产生 `turn_outcome:'ended'`，不表示目标完成。来源 45 秒后过期，连接心跳不会完成任务。真实轮次出现后替代初始 observed 行。公开模式不发送任务、收件项或用量，并清除云缓存、创建新视图流。
 
+## 日常启动与 USB 连接
+
+最简上手（已安装 Magpie 的 Mac）：运行 `tools/agent_pet_up.sh`，插上设备，屏幕询问时按 OK。全部设置就这些。
+
+`tools/agent_pet_up.sh` 是唯一入口。它会检查 Node.js 20+、pyserial 和（仅首次）OpenSSL，缺什么就给出确切的解决办法；首次安装一次服务依赖；首次运行时创建 `.agent-pet/`（仅监听本机，USB 已够用）；每当桥接服务尚未运行时，用 `services/src/renew.mjs` 为 10 天内到期的凭据续期，并据此写入 Magpie 连接文件 `~/.config/agent-pet/magpie.json`（0600），不需要手动复制任何东西。随后在后台启动本地桥接服务、Magpie 数据源和常驻 USB 连接。`status` 显示运行情况和最近一条连接消息，`stop` 只停止本仓库目录下的服务（按绝对路径匹配进程），`autostart on|off` 添加或移除登录时自动启动的 macOS LaunchAgent。桥接服务没能启动时，脚本会说明原因（例如端口被占用），而不是报告成功。
+
+`wifi` 让设备不插线也能用。它会一次性把桥接服务切换到局域网模式（`services/src/lan.mjs`）：设备和手机通过这台电脑的 Bonjour 名称（`<LocalHostName>.local`）找到它，设备校验证书名称、手机固定证书指纹，因此都不依赖 IP；桥接服务绑定当前的私有局域网 IPv4，每次启动都会重新检测（地址变化会重启桥接服务），没有局域网时退回本机地址。Magpie 通道仍在 127.0.0.1；USB 转发直接连接绑定地址，因为这台电脑可能把自己的名称解析成本机回环地址。随后命令会读取当前 Wi-Fi 名称（读不到就让你输入），在终端里询问密码且不保存，请设备一键确认后发送设置；设备会显示 Wi-Fi 名称，需要再按一次 OK 才会应用，测试连接失败时保留原设置。设备通过 Wi-Fi 在线后，常驻 USB 连接会保持安静，只有设备离线超过一分钟才会再次请求连接。
+
+`phone` 在终端显示给手机 App 扫描的二维码：`{"v":"agentpet-pair-v1","origin":"https://<名称>.local:7443","origin_ip":"https://<局域网 IP>:7443","token":"<控制端凭据>","pin":"<桥接证书 DER 的 SHA-256>","name":"<电脑名称>"}`。凭据只出现在二维码里。请把这个二维码当作钥匙。控制端凭据有效期 30 天，过期后手机需要重新配对。常驻连接（`tools/agent_pet_device.py link`）会自动找到第一台 Espressif USB 设备并发送 `link.request`，设备随即显示“电脑请求连接”：按一下 OK 允许，长按拒绝并在一分钟内不再提示。电脑永远不能自行打开窗口。允许之后，电脑每推送一帧都会把窗口再延长 30 秒，所以只要不拔线、服务不停就一直保持连接；断开后会等待设备重新出现。来自电脑的配置（Wi-Fi、服务）仍需在设备上单独确认。概览页在未连接时按 OK 会直接打开 USB 窗口。
+
+## Magpie 数据源
+
+`services/src/magpie-source.mjs` 直接从 [Magpie](https://usemagpie.ai) 读取数据供给桥接服务，不再依赖代理内插件。它每 10 秒以只读方式调用一次 Magpie CLI：
+
+- `magpie sessions --limit 16 --json`：Magpie 可读取的所有代理（DeepSeek Harness、Codex、Claude Code、Claude Desktop 等）最近 16 个会话，含标题、输入/输出 token 和 Magpie 算出的费用。
+- `magpie usage --csv today`：今天的每条请求。按会话用输出 token 除以（总耗时 − 首 token 时间）得到生成速度；同一批数据也给出今日合计和按模型的列表（按 token 取前 8 个，各含 token、费用和速度），设备的用量页每页显示 4 行。token 数为输入加输出，与 Magpie 首页口径一致；设备上缩写为 K、M、B。
+- `magpie settings get currency`：费用默认是美元；如果 Magpie 设成人民币，则用 Magpie 自己的 `~/.cache/magpie/fxrate.json` 换算。
+
+会话在最近 90 秒内有请求或活动时显示为进行中。费用由 Magpie 按价目表算出，因此标为估算。只有标题、代理名和数字会发给桥接服务；提示词、回复、路径和恢复命令都不会离开这个进程。它复用 `~/.config/agent-pet/magpie.json` 里的数据源凭据，通过回环 IPC 上报（每个会话一次 `/v1/events`，今日合计随 `/v1/source/heartbeat` 发送）。
+
+```bash
+node services/src/magpie-source.mjs        # 可选参数：轮询间隔秒数（最少 5）
+```
+
+只有设备上显示的内容变化时才重新发送该对话，每 30 次轮询做一次全量刷新。`MAGPIE_BIN` 可覆盖 Magpie 可执行文件路径，`AGENT_PET_MAGPIE_CONNECTION` 可覆盖连接文件。若代理内插件也上报了同一个对话，桥接服务优先显示带用量数据的那条记录。
+
 ## 主动启用的中继
 
 第二个服务使用 `mode:'relay'`、真实证书、明确监听地址，以及独立发放账户、来源、设备凭据的受限存储。远程凭据与局域网凭据独立，必须有意配对两端。中继 WSS 路径 `/v1/relay`，来源认证首帧为 `{v:1,type:'auth',payload:{credential,device_id}}`；设备在 payload 中另加 `view_epoch` 和布尔 `public_mode`。中继返回规范认证 `welcome`，包含所选远程 epoch、模式、原始来源健康和限制。来源只发布完整且通过验证的最小快照，设备可读取状态和配置自身隐私视图，不支持远程动作。中继不代理宿主 API、文件、命令或终端。初始中继周期发布完整快照，不转发 delta。

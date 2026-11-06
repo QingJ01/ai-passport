@@ -20,3 +20,7 @@ const char *pet_text_provenance(const char *provenance);
 const char *pet_text_inbox(const char *title);
 /* "1234567" -> "1,234,567". Non-digit input is copied unchanged. */
 void pet_text_group_digits(const char *digits, char *out, size_t capacity);
+/* Compact count: "987" -> "987", "52340" -> "52.3K", "18817828" -> "18.8M", "1234567890" -> "1.2B". */
+void pet_text_compact_count(const char *digits, char *out, size_t capacity);
+/* Task metrics such as "5.2万 Token・38.5 t/s\n费用 约￥0.36"; empty when none. */
+void pet_text_task_metrics(const pet_task_t *task, char *out, size_t capacity);

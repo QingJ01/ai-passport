@@ -17,6 +17,44 @@ export function key(value) {
     throw new Error("invalid_identity");
   return value;
 }
+// Display metrics a source may attach to a conversation or report for a period.
+// Numbers are formatted here so the device only validates and draws strings.
+const CURRENCY = { USD: "$", CNY: "￥" };
+export function money(amount, currency) {
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0 || amount > 1e9)
+    return null;
+  const symbol = CURRENCY[currency];
+  if (!symbol) return null;
+  if (amount > 0 && amount < 0.01) return "<" + symbol + "0.01";
+  return symbol + amount.toFixed(amount >= 1000 ? 0 : amount >= 100 ? 1 : 2);
+}
+export function speed(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1e6)
+    return null;
+  return value >= 100 ? String(Math.round(value)) : value.toFixed(1);
+}
+export function metrics(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  let tokens = null;
+  try {
+    tokens = value.tokens == null ? null : counter(value.tokens);
+  } catch {
+    return null;
+  }
+  const result = {
+    tokens: tokens && tokens.length <= 23 ? tokens : null,
+    rate: speed(value.rate),
+    cost: money(value.cost, value.currency),
+    cost_estimate: value.cost_estimate === true,
+    agent:
+      typeof value.agent === "string" && value.agent.trim()
+        ? text(value.agent, 16)
+        : null,
+  };
+  return Object.values(result).some((v) => v !== null && v !== false)
+    ? result
+    : null;
+}
 export function counter(value) {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0)
     return String(value);
@@ -45,6 +83,7 @@ export class Model {
     this.records = new Map();
     this.lastSeen = 0;
     this.connected = false;
+    this.sourceUsage = null;
   }
   ingest(e) {
     key(e.source_id);
@@ -108,10 +147,19 @@ export class Model {
       turn_outcome: turnEnded ? "ended" : null,
       pending_interactions: interactions,
       state_revision: e.revision,
-      updated_at: new Date(this.now()).toISOString(),
+      // A source may report when the conversation was last active; never future.
+      updated_at: new Date(
+        Number.isSafeInteger(e.activity_at) &&
+        e.activity_at > 0 &&
+        e.activity_at <= this.now()
+          ? e.activity_at
+          : this.now(),
+      ).toISOString(),
       available_actions:
         e.capabilities?.open_on_host === true ? ["open_on_host"] : [],
     };
+    const shown = metrics(e.metrics);
+    if (shown) task.metrics = shown;
     if (!this.tasks.has(taskId) && this.tasks.size >= 4096)
       throw new Error("task_capacity");
     this.tasks.set(taskId, task);
@@ -174,7 +222,65 @@ export class Model {
       supersedes: record.supersedes ? key(record.supersedes) : null,
     });
   }
+  // Period totals reported by the source itself (e.g. Magpie's "today").
+  setSourceUsage(value) {
+    if (value == null) {
+      this.sourceUsage = null;
+      return;
+    }
+    const period = value?.period === "today" ? "today" : null;
+    if (!period || !metrics(value)) throw new Error("source_usage");
+    // Keep the raw validated numbers so a restart can re-validate them.
+    const models = Array.isArray(value.models)
+      ? value.models
+          .slice(0, 8)
+          .filter((x) => x && typeof x.name === "string" && x.name.trim())
+          .map((x) => ({
+            name: x.name,
+            tokens: x.tokens,
+            cost: x.cost ?? null,
+            rate: x.rate ?? null,
+          }))
+      : [];
+    this.sourceUsage = {
+      period,
+      tokens: value.tokens,
+      rate: value.rate ?? null,
+      cost: value.cost ?? null,
+      currency: value.currency ?? null,
+      cost_estimate: value.cost_estimate === true,
+      models,
+      spark: Array.isArray(value.spark)
+        ? value.spark
+            .slice(-30)
+            .map((v) => (Number.isSafeInteger(v) && v >= 0 ? v : 0))
+        : [],
+    };
+  }
   usage() {
+    const source = this.sourceUsage && metrics(this.sourceUsage);
+    if (source) {
+      const u = { ...source, period: this.sourceUsage.period };
+      const currency = this.sourceUsage.currency;
+      const models = (this.sourceUsage.models ?? [])
+        .map((x) => {
+          const shown = metrics({ ...x, currency });
+          return shown && { name: text(x.name, 32), tokens: shown.tokens, cost: shown.cost, rate: shown.rate };
+        })
+        .filter(Boolean);
+      return {
+        models,
+        spark: this.sourceUsage.spark ?? [],
+        scope: u.period,
+        daily_tokens: u.period === "today" ? u.tokens : null,
+        tokens: u.tokens,
+        provenance: "magpie-today",
+        money: [],
+        cost: u.cost,
+        cost_estimate: u.cost_estimate,
+        rate: u.rate,
+      };
+    }
     const superseded = new Set(
       [...this.records.values()].map((x) => x.supersedes).filter(Boolean),
     );
@@ -204,8 +310,30 @@ export class Model {
         : null,
     };
   }
+  // One entry per conversation: the latest run of each source session. Past
+  // turns stay in the model for actions and history but would otherwise fill
+  // the device's 16 slots with a single busy conversation.
+  conversations() {
+    const latest = new Map();
+    for (const task of this.tasks.values()) {
+      const identity = this.identities.get(task.id);
+      const key = identity
+        ? `${identity.source_id}\u0000${identity.session_id}`
+        : task.id;
+      const current = latest.get(key);
+      // Prefer the record that carries usage metrics (a richer source for the
+      // same conversation), then the newest revision.
+      const better =
+        !current ||
+        (!!task.metrics !== !!current.metrics
+          ? !!task.metrics
+          : task.state_revision > current.state_revision);
+      if (better) latest.set(key, task);
+    }
+    return [...latest.values()];
+  }
   projection({ remote = false, publicMode = false } = {}) {
-    const all = [...this.tasks.values()].sort(
+    const all = this.conversations().sort(
       (a, b) =>
         b.pending_interactions.length - a.pending_interactions.length ||
         Number(b.execution_state === "running") -
@@ -219,7 +347,11 @@ export class Model {
             .slice(0, 16)
             .map((t, i) =>
               remote
-                ? { ...t, title: `Task ${i + 1}`, available_actions: [] }
+                ? (({ metrics: _, ...rest }) => ({
+                    ...rest,
+                    title: `Task ${i + 1}`,
+                    available_actions: [],
+                  }))(t)
                 : t,
             ),
       inbox:
@@ -236,7 +368,11 @@ export class Model {
               .slice(0, 8),
       usage: publicMode
         ? { tokens: null, provenance: "hidden" }
-        : { ...this.usage(), money: remote ? [] : this.usage().money },
+        : remote
+          ? (({ cost: _c, cost_estimate: _e, rate: _r, models: _m, spark: _s, ...u }) => ({ ...u, money: [] }))(
+              this.usage(),
+            )
+          : this.usage(),
       source: this.health(),
       total_tasks: publicMode ? 0 : all.length,
     };

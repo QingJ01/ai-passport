@@ -29,8 +29,23 @@ int main(void){
     assert(!strcmp(pet_text_provenance("host-reduced-records"),"电脑端汇总"));
     assert(!strcmp(pet_text_provenance(""),"暂无来源"));
     assert(pet_text_provenance("Magpie desktop")==NULL);
+    assert(!strcmp(pet_text_provenance("magpie-today"),"Magpie 今日统计"));
     assert(!strcmp(pet_text_inbox("Input requested"),"有任务在等你回复"));
     assert(!strcmp(pet_text_inbox("自定义提醒"),"自定义提醒"));
+    pet_text_compact_count("987",out,sizeof(out));assert(!strcmp(out,"987"));
+    pet_text_compact_count("9876",out,sizeof(out));assert(!strcmp(out,"9.8K"));
+    pet_text_compact_count("52340",out,sizeof(out));assert(!strcmp(out,"52.3K"));
+    pet_text_compact_count("50000",out,sizeof(out));assert(!strcmp(out,"50K"));
+    pet_text_compact_count("123456",out,sizeof(out));assert(!strcmp(out,"123K"));
+    pet_text_compact_count("18817828",out,sizeof(out));assert(!strcmp(out,"18.8M"));
+    pet_text_compact_count("1234567890",out,sizeof(out));assert(!strcmp(out,"1.2B"));
+    pet_text_compact_count("456789012345",out,sizeof(out));assert(!strcmp(out,"456B"));
+    pet_text_compact_count("99999999999999999999999",out,sizeof(out));assert(!strcmp(out,"99999999999999999999999"));
+    char line[80];pet_task_t m={0};pet_text_task_metrics(&m,line,sizeof(line));assert(!strcmp(line,""));
+    strcpy(m.tokens,"52340");strcpy(m.rate,"38.5");strcpy(m.cost,"￥0.36");m.cost_estimate=true;
+    pet_text_task_metrics(&m,line,sizeof(line));assert(!strcmp(line,"52.3K Token・38.5 t/s\n费用 约￥0.36"));
+    m.tokens[0]=0;m.cost_estimate=false;pet_text_task_metrics(&m,line,sizeof(line));assert(!strcmp(line,"38.5 t/s\n费用 ￥0.36"));
+    pet_text_task_metrics(&m,line,8);assert(strlen(line)<8);
     puts("Agent Pet Chinese text tests: PASS");
     return 0;
 }

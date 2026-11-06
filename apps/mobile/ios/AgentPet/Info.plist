@@ -53,6 +53,8 @@
     </dict>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>Securely configure your AI Passport during its setup window.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Connect to the Agent Pet bridge running on your computer on this Wi-Fi network.</string>
     <key>NSCameraUsageDescription</key>
     <string>Scan the temporary pairing code displayed by your AI Passport.</string>
     <key>NSFaceIDUsageDescription</key>

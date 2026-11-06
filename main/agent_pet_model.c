@@ -77,6 +77,21 @@ bool pet_json_uint(const pet_json_t *j,int t,uint32_t *out) { if(t<0)return fals
 bool pet_json_bool(const pet_json_t *j,int t,bool *out) { if(t<0||j->t[t].kind=='"')return false;if(pet_json_is(j,t,"true")){*out=true;return true;}if(pet_json_is(j,t,"false")){*out=false;return true;}return false; }
 static bool str(const pet_json_t*j,int o,const char*k,char*s,size_t n){return pet_json_string(j,pet_json_field(j,o,k),s,n);}
 static bool num(const pet_json_t*j,int o,const char*k,uint32_t*n){return pet_json_uint(j,pet_json_field(j,o,k),n);}
+static bool digits(const char*s,bool dot){if(!*s)return false;for(;*s;s++)if(!((*s>='0'&&*s<='9')||(dot&&*s=='.')))return false;return true;}
+/* Optional display metrics: absent or null clears the field; anything else must validate. */
+static bool metrics(const pet_json_t*j,int o,char*tokens,char*rate,char*cost,bool*estimate,char*agent){
+    rate[0]=cost[0]=0;*estimate=false;
+    int t;
+    if(agent){agent[0]=0;t=pet_json_field(j,o,"agent");if(t>=0&&!pet_json_is(j,t,"null")&&!pet_json_string(j,t,agent,20))return false;}
+    if(tokens){tokens[0]=0;t=pet_json_field(j,o,"tokens");if(t>=0&&!pet_json_is(j,t,"null")&&(!pet_json_string(j,t,tokens,24)||!digits(tokens,false)))return false;}
+    t=pet_json_field(j,o,"rate");
+    if(t>=0&&!pet_json_is(j,t,"null")&&(!pet_json_string(j,t,rate,12)||!digits(rate,true)))return false;
+    t=pet_json_field(j,o,"cost");
+    if(t>=0&&!pet_json_is(j,t,"null")&&(!pet_json_string(j,t,cost,20)||!cost[0]))return false;
+    t=pet_json_field(j,o,"cost_estimate");
+    if(t>=0&&!pet_json_bool(j,t,estimate))return false;
+    return true;
+}
 const char *pet_state_name(pet_state_t s){static const char*names[]={"unknown","queued","running","waiting_user","completed","failed","cancelled"};return names[s<=PET_CANCELLED?s:0];}
 static bool task(const pet_json_t*j,int o,pet_task_t*t){
     memset(t,0,sizeof(*t));char state[24],execution[24],outcome[24];
@@ -87,12 +102,25 @@ static bool task(const pet_json_t*j,int o,pet_task_t*t){
     if(actions>=0){if(j->t[actions].kind!='[')return false;unsigned count=0;for(int i=actions+1;i<j->t[actions].next;i=j->t[i].next){char name[33];if(++count>4||!pet_json_string(j,i,name,sizeof(name)))return false;if(revision>=0&&!strcmp(name,"open_on_host"))t->can_open_host=true;}}
     t->running=!strcmp(execution,"running");int a=pet_json_field(j,o,"pending_interactions");
     if(a>=0){if(j->t[a].kind!='[')return false;unsigned count=0;for(int i=a+1;i<j->t[a].next;i=j->t[i].next){char request[97];uint32_t revision;bool blocks;if(++count>4||!str(j,i,"request_id",request,sizeof(request))||!request[0]||!num(j,i,"revision",&revision)||!pet_json_bool(j,pet_json_field(j,i,"blocks_execution"),&blocks))return false;}t->waiting=count>0;}
-    t->goal_completed=str(j,o,"task_outcome",outcome,sizeof(outcome))&&!strcmp(outcome,"completed");return true;
+    t->goal_completed=str(j,o,"task_outcome",outcome,sizeof(outcome))&&!strcmp(outcome,"completed");
+    int m=pet_json_field(j,o,"metrics");if(m<0)return true;
+    return j->t[m].kind=='{'&&metrics(j,m,t->tokens,t->rate,t->cost,&t->cost_estimate,t->agent);
 }
 void pet_model_init(pet_model_t*m,const char*epoch){memset(m,0,sizeof(*m));if(epoch)strncpy(m->view_epoch,epoch,64);}
 void pet_model_privacy(pet_model_t*m,bool pub,const char*epoch){pet_model_init(m,epoch);m->public_mode=pub;m->needs_resync=true;}
 void pet_model_tick(pet_model_t*m,uint32_t now){if(m->synchronizing&&now-m->stage_started_ms>10000){memset(&m->staging,0,sizeof(m->staging));m->synchronizing=false;m->needs_resync=true;}if(m->current.valid&&now-m->last_frame_ms>=45000){m->current.source_fresh=false;m->needs_resync=true;}}
-static bool usage(const pet_json_t*j,int p,pet_view_t*v){int u=pet_json_field(j,p,"usage");if(u<0)return true;int t=pet_json_field(j,u,"tokens");v->usage_known=!(t>=0&&j->t[t].kind=='n'&&pet_json_is(j,t,"null"));if(v->usage_known){if(!pet_json_string(j,t,v->tokens,sizeof(v->tokens))||!v->tokens[0])return false;for(char*s=v->tokens;*s;s++)if(*s<'0'||*s>'9')return false;}else v->tokens[0]=0;int pr=pet_json_field(j,u,"provenance");return pr<0||pet_json_string(j,pr,v->provenance,sizeof(v->provenance));}
+static bool usage(const pet_json_t*j,int p,pet_view_t*v){int u=pet_json_field(j,p,"usage");if(u<0)return true;int t=pet_json_field(j,u,"tokens");v->usage_known=!(t>=0&&j->t[t].kind=='n'&&pet_json_is(j,t,"null"));if(v->usage_known){if(!pet_json_string(j,t,v->tokens,sizeof(v->tokens))||!v->tokens[0])return false;for(char*s=v->tokens;*s;s++)if(*s<'0'||*s>'9')return false;}else v->tokens[0]=0;int pr=pet_json_field(j,u,"provenance");if(pr>=0&&!pet_json_string(j,pr,v->provenance,sizeof(v->provenance)))return false;if(!metrics(j,u,NULL,v->rate,v->cost,&v->cost_estimate,NULL))return false;
+    v->spark_count=0;int spark=pet_json_field(j,u,"spark");
+    if(spark>=0&&!pet_json_is(j,spark,"null")){if(j->t[spark].kind!='[')return false;
+        for(int i=spark+1;i<j->t[spark].next;i=j->t[i].next){if(v->spark_count>=PET_SPARK_MAX||!pet_json_uint(j,i,&v->spark[v->spark_count]))return false;v->spark_count++;}}
+    v->model_count=0;int list=pet_json_field(j,u,"models");if(list<0||pet_json_is(j,list,"null"))return true;if(j->t[list].kind!='[')return false;
+    for(int i=list+1;i<j->t[list].next;i=j->t[i].next){
+        if(v->model_count>=PET_USAGE_MODEL_MAX||j->t[i].kind!='{')return false;
+        pet_usage_model_t*m=&v->models[v->model_count];memset(m,0,sizeof(*m));bool unused;
+        if(!str(j,i,"name",m->name,sizeof(m->name))||!m->name[0]||!metrics(j,i,m->tokens,m->rate,m->cost,&unused,NULL))return false;
+        v->model_count++;
+    }
+    return true;}
 static bool page(const pet_json_t*j,int p,pet_view_t*v){
     int a=pet_json_field(j,p,"tasks");if(a>=0){if(j->t[a].kind!='[')return false;unsigned added=0;for(int i=a+1;i<j->t[a].next;i=j->t[i].next){if(++added>4||v->task_count>=PET_TASK_MAX)return false;pet_task_t t;if(!task(j,i,&t))return false;for(int k=0;k<v->task_count;k++)if(!strcmp(v->tasks[k].id,t.id))return false;v->tasks[v->task_count++]=t;}}
     a=pet_json_field(j,p,"inbox");if(a>=0){if(j->t[a].kind!='[')return false;for(int i=a+1;i<j->t[a].next;i=j->t[i].next){if(v->inbox_count>=PET_INBOX_MAX||!str(j,i,"title",v->inbox[v->inbox_count],PET_TEXT_MAX+1))return false;v->inbox_count++;}}

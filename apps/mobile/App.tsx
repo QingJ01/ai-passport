@@ -15,7 +15,10 @@ import {
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as SecureStore from "expo-secure-store";
-import native, { secureFetch } from "./modules/agent-pet-provisioning";
+import native, {
+  currentWifiName,
+  secureFetch,
+} from "./modules/agent-pet-provisioning";
 import {
   enroll,
   serviceProfile,
@@ -35,7 +38,38 @@ import {
   type Source,
   type View as RemoteView,
 } from "./src/relay";
+import {
+  chooseSource,
+  decodeStored,
+  encodeStored,
+  isPairingText,
+  parsePairing,
+  type StoredConnection,
+} from "./src/pairing";
+import { friendly } from "./src/friendly";
 const tabs = ["Today", "Devices", "Setup", "Account"] as const;
+const tabLabel: Record<(typeof tabs)[number], string> = {
+  Today: "今天",
+  Devices: "设备",
+  Setup: "配对",
+  Account: "账户",
+};
+const STORE_KEY = "agentpet.controller";
+const PIN_HEX = /^[0-9a-f]{64}$/;
+// Resolves false on cancel or dismissal, so consent always defaults to "no".
+function confirm(title: string, message: string, ok: string) {
+  return new Promise<boolean>((resolve) =>
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: "取消", style: "cancel", onPress: () => resolve(false) },
+        { text: ok, onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    ),
+  );
+}
 function Button({
   title,
   onPress,
@@ -54,6 +88,42 @@ function Button({
     >
       <Text style={s.buttonText}>{title}</Text>
     </Pressable>
+  );
+}
+function LinkButton({
+  title,
+  onPress,
+}: {
+  title: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={s.link}>
+      <Text style={s.linkText}>{title}</Text>
+    </Pressable>
+  );
+}
+function Step({
+  n,
+  title,
+  state,
+  children,
+}: {
+  n: string;
+  title: string;
+  state: "done" | "active" | "todo";
+  children?: React.ReactNode;
+}) {
+  return (
+    <View
+      style={[s.card, state === "todo" && { opacity: 0.45 }]}
+      accessibilityLabel={`${n} ${title}${state === "done" ? "，已完成" : ""}`}
+    >
+      <Text style={s.title}>
+        {state === "done" ? "✓" : n} {title}
+      </Text>
+      {children}
+    </View>
   );
 }
 function Field({
@@ -89,6 +159,13 @@ function AppContent() {
   const [tab, setTab] = useState<(typeof tabs)[number]>("Today");
   const [origin, setOrigin] = useState("");
   const [token, setToken] = useState("");
+  const [manualPin, setManualPin] = useState("");
+  const [computerName, setComputerName] = useState("");
+  const [savedName, setSavedName] = useState<string | null>();
+  const [advanced, setAdvanced] = useState(false);
+  const [setupAdvanced, setSetupAdvanced] = useState(false);
+  const [deadline, setDeadline] = useState(0);
+  const [done, setDone] = useState<string>();
   const [relay, setRelay] = useState<Relay>();
   const [devices, setDevices] = useState<Device[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
@@ -101,7 +178,10 @@ function AppContent() {
   >();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
-  const [scanning, setScanning] = useState(false);
+  const [scanTarget, setScanTarget] = useState<"computer" | "device" | null>(
+    null,
+  );
+  const scanLock = useRef(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [q, setQ] = useState<PairingQR>();
   const [challenge, setChallenge] = useState<Challenge>();
@@ -119,7 +199,9 @@ function AppContent() {
     setChallenge(undefined);
     setQ(undefined);
     setPassphrase("");
-    setScanning(false);
+    setReplace(undefined);
+    setDeadline(0);
+    setScanTarget(null);
     await session.current.close();
   };
   useEffect(() => {
@@ -131,6 +213,23 @@ function AppContent() {
         setView(undefined);
       }
     });
+    // First run: no saved computer means the pairing wizard is the starting screen.
+    // Only the display name is read here; connecting still needs an explicit tap.
+    SecureStore.getItemAsync(STORE_KEY)
+      .then((saved) => {
+        if (!saved) {
+          setSavedName(null);
+          setTab("Setup");
+          return;
+        }
+        try {
+          const c = decodeStored(saved);
+          setSavedName(c.name ?? new URL(c.origin).hostname);
+        } catch {
+          setSavedName(null);
+        }
+      })
+      .catch(() => setSavedName(null));
     return () => {
       clearInterval(t);
       sub.remove();
@@ -143,7 +242,7 @@ function AppContent() {
     try {
       await fn();
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : "Request failed");
+      setNotice(friendly(e));
     } finally {
       setBusy(false);
     }
@@ -162,7 +261,9 @@ function AppContent() {
     if (generation !== epoch.current) return;
     setDevices(d.devices);
     setSources(src.sources);
-    if (!src.sources.some((x) => x.id === source)) setSource("");
+    // One source needs no decision; several keep the explicit choice in Devices.
+    if (src.sources.length === 1) setSource(src.sources[0].id);
+    else if (!src.sources.some((x) => x.id === source)) setSource("");
     setHealth(h);
     if (selected) {
       try {
@@ -186,7 +287,47 @@ function AppContent() {
     if (generation === epoch.current) setView(v);
     setTab("Today");
   };
-  const scan = async () => {
+  const connectWith = async (c: StoredConnection, persist: boolean) => {
+    epoch.current++;
+    setView(undefined);
+    setDevices([]);
+    setSources([]);
+    setDevice(undefined);
+    setHealth(undefined);
+    setSource("");
+    setRelay(undefined);
+    setServiceTransport(undefined);
+    const r = new Relay(c.origin, c.token, secureFetch, {
+      pin: c.pin,
+      fallbackOrigin: c.origin_ip,
+    });
+    await r.devices();
+    const profile = serviceProfile(await r.service());
+    if (persist) {
+      await SecureStore.setItemAsync(
+        STORE_KEY,
+        encodeStored({ ...c, origin: r.origin }),
+        {
+          keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+        },
+      );
+      setSavedName(c.name ?? new URL(c.origin).hostname);
+    }
+    setServiceTransport(profile);
+    setRelay(r);
+    setComputerName(c.name ?? new URL(c.origin).hostname);
+    await refresh(r, null);
+    return r;
+  };
+  const restore = async () => {
+    const saved = await SecureStore.getItemAsync(STORE_KEY);
+    if (!saved) throw Error("No saved session");
+    const c = decodeStored(saved);
+    await connectWith(c, false);
+    setOrigin(c.origin);
+    setNotice(`已连接电脑：${c.name ?? c.origin}`);
+  };
+  const scan = async (target: "computer" | "device") => {
     await closeSetup();
     if (!permission?.granted) {
       const p = await requestPermission();
@@ -195,7 +336,7 @@ function AppContent() {
           "Allow camera access in system settings to scan the screen code.",
         );
     }
-    if (Platform.OS === "android") {
+    if (target === "device" && Platform.OS === "android") {
       const permissions =
         Number(Platform.Version) >= 31
           ? [
@@ -213,27 +354,127 @@ function AppContent() {
           "Bluetooth permission required. Open app permissions in Settings.",
         );
     }
-    setScanning(true);
+    if (target === "device") await prefillWifi();
+    scanLock.current = false;
+    setScanTarget(target);
+  };
+  // Best effort only. Android reveals the SSID only with location access; iOS usually does not.
+  const prefillWifi = async () => {
+    if (ssid) return;
+    if (Platform.OS === "android") {
+      const perm = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+      if (!(await PermissionsAndroid.check(perm)))
+        await PermissionsAndroid.request(perm, {
+          title: "自动填写 Wi-Fi 名称",
+          message:
+            "Android 需要“位置”权限才能告诉 App 手机当前连接的 Wi-Fi 名称。拒绝也没关系，稍后手动输入即可。",
+          buttonPositive: "好",
+          buttonNegative: "不用了",
+        }).catch(() => undefined);
+    }
+    const name = await currentWifiName();
+    if (name) setSsid((current) => current || name);
   };
   const onCode = (data: string) => {
-    if (!scanning || busy) return;
-    setScanning(false);
+    const target = scanTarget;
+    if (!target || busy || scanLock.current) return;
+    scanLock.current = true;
+    setScanTarget(null);
+    if (target === "computer") {
+      void run(async () => {
+        if (!isPairingText(data))
+          throw Error("Scan the pairing code shown on your computer");
+        const pairing = parsePairing(data);
+        await connectWith(pairing, true);
+        setDone(undefined);
+        setNotice(`已连接电脑：${pairing.name}`);
+      });
+      return;
+    }
     void run(async () => {
+      if (isPairingText(data))
+        throw Error("Scan the temporary device screen code");
       const qr = parseQR(data);
       setQ(qr);
+      setDone(undefined);
+      setDeadline(Date.now() + 120000);
       setNotice(
-        "Press OK on the device to enable Bluetooth, then keep it nearby while connecting securely.",
+        "请在设备上按 OK 确认。手机正在通过蓝牙连接设备，请放在设备旁边。",
       );
       setupTimer.current = setTimeout(() => {
         void closeSetup();
-        setNotice(
-          "Setup window expired. Open setup on the device and scan again.",
-        );
+        setNotice("二维码已过期，请在设备上重新打开“连接手机”再扫一次。");
       }, 120000);
-      const c = await session.current.open(qr);
+      let c: Challenge;
+      try {
+        c = await session.current.open(qr);
+      } catch (e) {
+        await closeSetup();
+        throw e;
+      }
       setChallenge(c);
-      setNotice("Device confirmed. Choose Wi-Fi or add it to your account.");
+      setNotice("设备已确认。请输入 Wi-Fi 密码。");
     });
+  };
+  // One button: Wi-Fi, ownership enrollment, bridge configuration and finish, inside the same
+  // 120-second physical window. The bridge scanned in step 1 is the service; remote sharing still
+  // needs its own default-cancel consent.
+  const finishWizard = async (skipWifi: boolean) => {
+    if (!relay || !q || !challenge)
+      throw Error(
+        "Setup expired. Open a new 120-second setup window on the device.",
+      );
+    try {
+      const [d, src] = await Promise.all([relay.devices(), relay.sources()]);
+      setDevices(d.devices);
+      setSources(src.sources);
+      const sourceId = chooseSource(
+        src.sources,
+        d.devices,
+        q.device_id,
+        source,
+      );
+      if (!sourceId) throw Error("Choose an authorized source first.");
+      const choice: EnrollmentChoice =
+        serviceTransport === "remote" ? "remote" : "local";
+      if (
+        choice === "remote" &&
+        !(await confirm(
+          "允许远程查看？",
+          `${relay.origin}\n这个服务能读取允许共享的任务摘要。继续前请向管理员确认服务所在地区、保留期限和费用。`,
+          "同意并继续",
+        ))
+      )
+        return;
+      if (!skipWifi) {
+        try {
+          await session.current.network(ssid, passphrase, replace);
+        } finally {
+          setPassphrase("");
+        }
+      }
+      const result = await enroll({
+        relay,
+        session: session.current,
+        qr: q,
+        sourceId,
+        choice,
+      });
+      await closeSetup();
+      setDone(result.device_id);
+      setNotice("");
+      await refresh();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "";
+      // Input mistakes keep the device window open so the user can just correct them.
+      if (
+        !/Choose (an authorized source|which saved network)|byte SSID/.test(
+          message,
+        )
+      )
+        await closeSetup();
+      throw e;
+    }
   };
   const logout = async () => {
     epoch.current++;
@@ -248,13 +489,18 @@ function AppContent() {
     setView(undefined);
     setHealth(undefined);
     setSource("");
-    await SecureStore.deleteItemAsync("agentpet.controller");
+    setComputerName("");
+    setSavedName(null);
+    setDone(undefined);
+    await SecureStore.deleteItemAsync(STORE_KEY);
     setNotice(
-      "Signed out. Local account data cleared. Revoke the phone token at the service if lost.",
+      "已退出，手机上保存的电脑连接和任务缓存已清除。如果手机丢失，请在电脑上吊销这部手机的令牌。",
     );
   };
   const enrollDevice = async (choice: EnrollmentChoice) => {
-    if (!relay || !q || !source)
+    const sourceId =
+      relay && q ? chooseSource(sources, devices, q.device_id, source) : null;
+    if (!relay || !q || !sourceId)
       throw Error(
         "Connect your account, choose a source and scan the device again.",
       );
@@ -262,7 +508,7 @@ function AppContent() {
       relay,
       session: session.current,
       qr: q,
-      sourceId: source,
+      sourceId,
       choice,
     });
     if (result.alreadyPaired) {
@@ -294,7 +540,7 @@ function AppContent() {
       <View style={s.header}>
         <Text style={s.eyebrow}>AI PASSPORT / COMPANION</Text>
         <Text style={s.heading}>
-          {tab === "Today" ? "A little closer." : tab}
+          {tab === "Today" ? "A little closer." : tabLabel[tab]}
         </Text>
         <Text style={s.muted}>
           {device
@@ -315,6 +561,21 @@ function AppContent() {
               {notice}
             </Text>
           </View>
+        )}
+        {scanTarget && (
+          <Card>
+            <Text style={s.title}>
+              {scanTarget === "computer"
+                ? "对准电脑上的二维码"
+                : "对准设备屏幕上的二维码"}
+            </Text>
+            <CameraView
+              style={{ height: 280 }}
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+              onBarcodeScanned={(r) => onCode(r.data)}
+            />
+            <LinkButton title="取消扫码" onPress={() => setScanTarget(null)} />
+          </Card>
         )}
         {tab === "Today" && (
           <>
@@ -353,19 +614,16 @@ function AppContent() {
               ) : (
                 <>
                   <Text style={s.body}>
-                    Set up your AI Passport to follow your tasks wherever you
-                    go.
+                    扫两次二维码、输入一次 Wi-Fi
+                    密码，就能在设备上看到电脑里的任务。
                   </Text>
-                  <Button
-                    title="Set up a device"
-                    onPress={() => setTab("Setup")}
-                  />
-                  <Button
-                    title={
-                      relay ? "Choose an account device" : "Connect account"
-                    }
-                    onPress={() => setTab(relay ? "Devices" : "Account")}
-                  />
+                  <Button title="开始配对" onPress={() => setTab("Setup")} />
+                  {relay && (
+                    <Button
+                      title="选择已配对的设备"
+                      onPress={() => setTab("Devices")}
+                    />
+                  )}
                 </>
               )}
             </Card>
@@ -563,37 +821,189 @@ function AppContent() {
         )}
         {tab === "Setup" && (
           <>
-            <Card>
-              <Text style={s.title}>Set up with your phone</Text>
-              <Text style={s.body}>
-                For remote tasks, connect your account and choose a source in
-                Devices first. Open Phone setup on the device. Scan its
-                temporary screen QR, then press physical OK. The printed product
-                QR is not a pairing secret. Setup closes after 120 seconds or
-                when this app leaves the foreground.
-              </Text>
-              <Text style={s.warning}>
-                If Phone setup is unavailable on the device, use USB recovery to
-                update or configure it.
-              </Text>
-              <Button
-                title="Scan device screen"
-                disabled={busy}
-                onPress={() => void run(scan)}
-              />
-              {scanning && (
-                <CameraView
-                  style={{ height: 260 }}
-                  barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                  onBarcodeScanned={(r) => onCode(r.data)}
-                />
+            <Step n="①" title="连接电脑" state={relay ? "done" : "active"}>
+              {relay ? (
+                <>
+                  <Text style={s.body}>已连接：{computerName}</Text>
+                  <Text style={s.muted}>
+                    {serviceTransport === "remote"
+                      ? "远程中继服务"
+                      : "本机桥接服务"}{" "}
+                    · {relay.address}
+                  </Text>
+                  <LinkButton
+                    title="换一台电脑"
+                    onPress={() => void run(() => scan("computer"))}
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={s.body}>
+                    在电脑的终端里运行下面这行命令，电脑上会出现一个二维码：
+                  </Text>
+                  <Text selectable style={s.code}>
+                    tools/agent_pet_up.sh phone
+                  </Text>
+                  <Button
+                    title="扫电脑上的二维码"
+                    disabled={busy}
+                    onPress={() => void run(() => scan("computer"))}
+                  />
+                  {savedName && (
+                    <LinkButton
+                      title={`使用上次的电脑（${savedName}）`}
+                      onPress={() => void run(restore)}
+                    />
+                  )}
+                </>
               )}
-              <Button
-                title="Exit setup / disconnect BLE"
+            </Step>
+            <Step
+              n="②"
+              title="连接设备"
+              state={done || challenge ? "done" : relay ? "active" : "todo"}
+            >
+              {relay && !done && !challenge && (
+                <>
+                  <Text style={s.body}>
+                    在设备菜单里选“连接手机”，设备屏幕上会出现二维码。扫码后在设备上按
+                    OK 确认。
+                  </Text>
+                  {q ? (
+                    <Text style={s.muted}>
+                      正在通过蓝牙连接设备…请在设备上按 OK。
+                    </Text>
+                  ) : (
+                    <Button
+                      title="扫设备屏幕上的二维码"
+                      disabled={busy}
+                      onPress={() => void run(() => scan("device"))}
+                    />
+                  )}
+                </>
+              )}
+              {challenge && (
+                <Text style={s.muted}>已确认设备：{q?.device_id}</Text>
+              )}
+              {!!deadline && (
+                <Text style={s.warning}>
+                  配对窗口还剩 {Math.max(0, Math.ceil((deadline - now) / 1000))}{" "}
+                  秒
+                </Text>
+              )}
+            </Step>
+            <Step
+              n="③"
+              title="输入 Wi-Fi 密码"
+              state={done ? "done" : challenge ? "active" : "todo"}
+            >
+              {challenge && (
+                <>
+                  <Field label="Wi-Fi 名称" value={ssid} set={setSsid} />
+                  <Field
+                    label="Wi-Fi 密码"
+                    value={passphrase}
+                    set={setPassphrase}
+                    secret
+                  />
+                  <Text style={s.muted}>
+                    设备只支持 2.4 GHz
+                    Wi-Fi。用手机热点时，请在热点设置里打开“最大兼容性”。
+                  </Text>
+                  {challenge.max_network_slots !== undefined &&
+                    challenge.network_slots.length >=
+                      challenge.max_network_slots && (
+                      <>
+                        <Text style={s.body}>
+                          设备已经存满 {challenge.max_network_slots} 个
+                          Wi-Fi，请选一个替换。新 Wi-Fi 连不上时，旧的会保留。
+                        </Text>
+                        {challenge.network_slots.map((n, i) => (
+                          <Button
+                            key={i}
+                            title={`${replace === i ? "✓ " : ""}${n}`}
+                            onPress={() => setReplace(i)}
+                          />
+                        ))}
+                      </>
+                    )}
+                  {sources.length > 1 &&
+                    !devices.some((d) => d.id === q?.device_id) && (
+                      <>
+                        <Text style={s.body}>
+                          这台电脑上有多个任务来源，请选择设备要显示哪一个：
+                        </Text>
+                        {sources.map((x) => (
+                          <Button
+                            key={x.id}
+                            title={`${source === x.id ? "✓ " : ""}${x.id}`}
+                            onPress={() => setSource(x.id)}
+                          />
+                        ))}
+                      </>
+                    )}
+                  <Button
+                    title="完成配对"
+                    disabled={busy}
+                    onPress={() => void run(() => finishWizard(false))}
+                  />
+                  <LinkButton
+                    title="设备已经连着 Wi-Fi，跳过这一步"
+                    onPress={() => void run(() => finishWizard(true))}
+                  />
+                </>
+              )}
+            </Step>
+            <Step n="④" title="完成" state={done ? "active" : "todo"}>
+              {done && (
+                <>
+                  <Text style={s.body}>
+                    设备正在连接电脑，几秒后设备屏幕上会出现你的任务。
+                  </Text>
+                  <Button
+                    title="查看任务"
+                    disabled={busy}
+                    onPress={() =>
+                      void run(async () => {
+                        const d = devices.find((x) => x.id === done);
+                        if (d) await selectDevice(d);
+                        else setTab("Devices");
+                      })
+                    }
+                  />
+                  <LinkButton
+                    title="再配一台设备"
+                    onPress={() => setDone(undefined)}
+                  />
+                </>
+              )}
+            </Step>
+            {(q || challenge) && (
+              <LinkButton
+                title="退出配对（断开蓝牙）"
                 onPress={() => void run(closeSetup)}
               />
-            </Card>
-            {challenge && (
+            )}
+            <LinkButton
+              title={setupAdvanced ? "收起高级选项" : "高级 / Advanced"}
+              onPress={() => setSetupAdvanced(!setupAdvanced)}
+            />
+            {setupAdvanced && (
+              <Card>
+                <Text style={s.title}>Advanced setup</Text>
+                <Text style={s.body}>
+                  After scanning the device in step ②, the cards below offer
+                  ownership-only pairing, Wi-Fi only, and remote-relay setup.
+                  Setup closes after 120 seconds or when this app leaves the
+                  foreground. The printed product QR is not a pairing secret.
+                </Text>
+                <Text style={s.warning}>
+                  If Phone setup is unavailable on the device, use USB recovery
+                  to update or configure it.
+                </Text>
+              </Card>
+            )}
+            {challenge && setupAdvanced && (
               <>
                 <Card>
                   <Text style={s.title}>Network</Text>
@@ -743,100 +1153,94 @@ function AppContent() {
         {tab === "Account" && (
           <>
             <Card>
-              <Text style={s.title}>Connect your service</Text>
+              <Text style={s.title}>连接电脑</Text>
               <Text style={s.body}>
-                Use an account access token issued by your service
-                administrator. It can manage your devices and view their task
-                summaries. Browser sign-in and account recovery are not
-                available in this version. Never paste a model-provider API key.
-              </Text>
-              <Field
-                label="Trusted service HTTPS origin"
-                value={origin}
-                set={setOrigin}
-              />
-              <Field
-                label="Controller access token"
-                value={token}
-                set={setToken}
-                secret
-              />
-              <Text style={s.muted}>
-                Remote summaries use TLS to the relay; the operator can read
-                permitted fields. Confirm operator, region, retention and cost
-                with your service administrator before connecting. No service is
-                deployed by this app.
+                {relay
+                  ? `已连接：${computerName}（${relay.address}）`
+                  : "在电脑终端运行 tools/agent_pet_up.sh phone，然后扫电脑上的二维码。"}
               </Text>
               <Button
-                title="Connect account"
+                title="扫电脑上的二维码"
                 disabled={busy}
-                onPress={() =>
-                  void run(async () => {
-                    epoch.current++;
-                    setView(undefined);
-                    setDevices([]);
-                    setSources([]);
-                    setDevice(undefined);
-                    setHealth(undefined);
-                    setSource("");
-                    setRelay(undefined);
-                    setServiceTransport(undefined);
-                    const r = new Relay(origin, token, secureFetch);
-                    await r.devices();
-                    const profile = serviceProfile(await r.service());
-                    await SecureStore.setItemAsync(
-                      "agentpet.controller",
-                      JSON.stringify({ origin: r.origin, token }),
-                      {
-                        keychainAccessible:
-                          SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-                      },
-                    );
-                    setServiceTransport(profile);
-                    setRelay(r);
-                    setToken("");
-                    await refresh(r, null);
-                    setNotice(
-                      "Account connected. Choose a device or start setup.",
-                    );
-                  })
-                }
+                onPress={() => void run(() => scan("computer"))}
               />
+              {savedName && (
+                <Button
+                  title={`使用上次的电脑（${savedName}）`}
+                  disabled={busy}
+                  onPress={() => void run(restore)}
+                />
+              )}
               <Button
-                title="Restore saved account"
-                disabled={busy}
-                onPress={() =>
-                  void run(async () => {
-                    const saved = await SecureStore.getItemAsync(
-                      "agentpet.controller",
-                    );
-                    if (!saved) throw Error("No saved session");
-                    const c = JSON.parse(saved);
-                    epoch.current++;
-                    setView(undefined);
-                    setDevice(undefined);
-                    setDevices([]);
-                    setSources([]);
-                    setSource("");
-                    setHealth(undefined);
-                    setRelay(undefined);
-                    const r = new Relay(c.origin, c.token, secureFetch);
-                    await r.devices();
-                    const profile = serviceProfile(await r.service());
-                    setOrigin(c.origin);
-                    setServiceTransport(profile);
-                    setRelay(r);
-                    await refresh(r, null);
-                    setNotice("Saved account connection restored.");
-                  })
-                }
-              />
-              <Button
-                title="Sign out and clear phone cache"
+                title="退出并清除手机上的数据"
                 disabled={busy}
                 onPress={() => void run(logout)}
               />
+              <LinkButton
+                title={advanced ? "收起高级选项" : "高级 / Advanced"}
+                onPress={() => setAdvanced(!advanced)}
+              />
             </Card>
+            {advanced && (
+              <Card>
+                <Text style={s.title}>Manual connection</Text>
+                <Text style={s.body}>
+                  For an existing service: use an account access token issued by
+                  your service administrator. It can manage your devices and
+                  view their task summaries. Never paste a model-provider API
+                  key.
+                </Text>
+                <Field
+                  label="Trusted service HTTPS origin"
+                  value={origin}
+                  set={setOrigin}
+                />
+                <Field
+                  label="Controller access token"
+                  value={token}
+                  set={setToken}
+                  secret
+                />
+                <Field
+                  label="Certificate SHA-256 pin (optional, 64 hex)"
+                  value={manualPin}
+                  set={setManualPin}
+                />
+                <Text style={s.muted}>
+                  Without a pin, the phone's normal certificate trust applies,
+                  so a self-signed service needs its CA installed in the OS.
+                  With a pin, only that exact certificate is accepted. Remote
+                  summaries use TLS to the relay; the operator can read
+                  permitted fields. Confirm operator, region, retention and cost
+                  with your service administrator before connecting.
+                </Text>
+                <Button
+                  title="Connect account"
+                  disabled={busy}
+                  onPress={() =>
+                    void run(async () => {
+                      const pin = manualPin.trim().toLowerCase();
+                      if (pin && !PIN_HEX.test(pin))
+                        throw Error(
+                          "Certificate fingerprint must be 64 lowercase hex characters",
+                        );
+                      const r = await connectWith(
+                        {
+                          origin,
+                          token,
+                          pin: pin || undefined,
+                          name: undefined,
+                        },
+                        true,
+                      );
+                      setOrigin(r.origin);
+                      setToken("");
+                      setNotice("已连接。可以查看设备或开始配对。");
+                    })
+                  }
+                />
+              </Card>
+            )}
             <Card>
               <Text style={s.title}>About your updates</Text>
               <Text style={s.body}>
@@ -878,7 +1282,7 @@ function AppContent() {
                 fontWeight: "700",
               }}
             >
-              {t}
+              {tabLabel[t]}
             </Text>
           </Pressable>
         ))}
@@ -1028,6 +1432,16 @@ const s = StyleSheet.create({
   },
   label: { color: "#c3d1da", fontSize: 13 },
   warning: { color: "#f1c284", fontSize: 13, lineHeight: 21 },
+  code: {
+    color: "#9de7ce",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontSize: 14,
+    backgroundColor: "#101a23",
+    padding: 10,
+    borderRadius: 8,
+  },
+  link: { paddingVertical: 10, alignItems: "center" },
+  linkText: { color: "#9de7ce", fontSize: 14, fontWeight: "600" },
   tabs: { flexDirection: "row", borderTopWidth: 1, borderTopColor: "#2e404d" },
   tab: { flex: 1, paddingVertical: 20, alignItems: "center" },
 });

@@ -8,6 +8,8 @@
 #define PET_INBOX_MAX 8
 #define PET_TEXT_MAX 96
 #define PET_ID_MAX 96
+#define PET_USAGE_MODEL_MAX 8
+#define PET_SPARK_MAX 30
 
 typedef enum { PET_UNKNOWN, PET_QUEUED, PET_RUNNING, PET_WAITING, PET_COMPLETED, PET_FAILED, PET_CANCELLED } pet_state_t;
 typedef struct {
@@ -15,11 +17,22 @@ typedef struct {
     pet_state_t state;
     uint64_t state_revision;
     bool running, waiting, goal_completed, can_open_host;
+    /* Optional bridge-formatted metrics; empty when the source did not report them. */
+    char tokens[24], rate[12], cost[20], agent[20];
+    bool cost_estimate;
 } pet_task_t;
+/* One row of the source's per-model usage list (e.g. Magpie's today). */
+typedef struct { char name[33], tokens[24], cost[20], rate[12]; } pet_usage_model_t;
 typedef struct {
     pet_task_t tasks[PET_TASK_MAX];
+    pet_usage_model_t models[PET_USAGE_MODEL_MAX];
+    uint8_t model_count;
+    /* Output tokens per minute, oldest first (source-provided activity). */
+    uint32_t spark[PET_SPARK_MAX];
+    uint8_t spark_count;
     char inbox[PET_INBOX_MAX][PET_TEXT_MAX + 1];
-    char tokens[24], provenance[32];
+    char tokens[24], provenance[32], cost[20], rate[12];
+    bool cost_estimate;
     uint8_t task_count, inbox_count;
     uint32_t total_tasks, revision;
     char stream[65];

@@ -23,6 +23,10 @@
 
 同一个生成器还会为固定界面文案生成两套子集字库：`pet_font_ui_14`（14 px，字重 500）和 `pet_font_ui_24`（24 px，字重 600）。字符清单是可打印 ASCII 加上 `main/main.c` 与 `main/agent_pet_text.c` 中出现的全部非 ASCII 字符（[coverage-ui.txt](fonts/agent-pet/coverage-ui.txt)）；[metrics.json](fonts/agent-pet/metrics.json) 记录三套字库的度量。修改屏幕文案后需重新运行 `python tools/agent_pet_font.py`，子集过期时 `--check` 会失败。两套子集约增加 60 KB Flash 表。
 
+### 本地宠物图片替换
+
+`tools/agent_pet_sprite.py` 可以把你有权使用的图片（默认读取本机已安装的 DeepSeek Harness 应用图标）做成鲸鱼主题的可爱像素宠物，输出到已被 gitignore 的 `main/local/`。它把剪影栅格化到 56x36 的网格，边缘用半透明柔化代替描边，加上明暗、取自原图镂空的浅色肚皮、带高光的大眼睛和腮红，并生成 7 帧（静止、尾巴上/下、眨眼、开心、警觉、挤压），固件按情绪切换；通用渲染器按 `main/pet_pixel.h` 的网格绘制，并按各处布局的宽度缩放。只要存在 `main/local/pet_whale_override.c`，固件构建就会用它替换原创鲸鱼，并打印“LOCAL whale override”提示；删除该目录即可恢复原图。第三方标志只留在你自己的电脑上：不要提交生成的文件，也不要分发用它构建的固件。仓库里的预览图始终使用原创图片。
+
 ## 图片（images）
 
 可复用的源图与生成的显示资产放在 `images/`。
