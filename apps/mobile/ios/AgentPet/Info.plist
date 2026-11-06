@@ -52,15 +52,15 @@
       <true/>
     </dict>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>Securely configure your AI Passport during its setup window.</string>
+    <string>配对时通过蓝牙连接你的 Agent Pet 设备，把 Wi-Fi 设置安全地发给它。</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Connect to the Agent Pet bridge running on your computer on this Wi-Fi network.</string>
+    <string>连接你电脑上运行的 Agent Pet（同一个 Wi-Fi 或这部手机的热点里），读取任务和设备状态。</string>
     <key>NSCameraUsageDescription</key>
-    <string>Scan the temporary pairing code displayed by your AI Passport.</string>
+    <string>扫描电脑和设备屏幕上的配对二维码。</string>
     <key>NSFaceIDUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
+    <string>Agent Pet 不使用面容 ID。</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <string>Agent Pet 不使用麦克风。</string>
     <key>RCTNewArchEnabled</key>
     <true/>
     <key>UILaunchStoryboardName</key>
@@ -79,7 +79,7 @@
       <string>UIInterfaceOrientationPortraitUpsideDown</string>
     </array>
     <key>UIUserInterfaceStyle</key>
-    <string>Dark</string>
+    <string>Automatic</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
   </dict>

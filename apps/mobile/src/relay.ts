@@ -19,6 +19,8 @@ export interface Device {
   id: string;
   source_id: string;
   remote_enabled: boolean;
+  /** Bridges since this release report whether the device is connected right now. */
+  online?: boolean;
 }
 export interface Source {
   id: string;

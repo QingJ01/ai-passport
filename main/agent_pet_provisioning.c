@@ -202,7 +202,7 @@ static esp_err_t endpoint(uint32_t session_id,const uint8_t *data,ssize_t length
     else if(op&&!strcmp(op,"challenge")){
         const char *challenge=string(input,"nonce",65);
         if(!challenge||strcmp(challenge,nonce))result=error_result("wrong_nonce");
-        else{result=cJSON_CreateObject();if(result){cJSON_AddStringToObject(result,"device_id",device_id);cJSON_AddStringToObject(result,"nonce",nonce);cJSON_AddStringToObject(result,"public_key_pem",public_pem);cJSON_AddBoolToObject(result,"physical_confirmed",confirmed);cJSON *slots=cJSON_AddArrayToObject(result,"network_slots");if(slots)for(size_t i=0;i<network_count&&i<3;i++)cJSON_AddItemToArray(slots,cJSON_CreateString(saved_networks[i]));cJSON_AddNumberToObject(result,"max_network_slots",3);cJSON *caps=cJSON_AddArrayToObject(result,"capabilities");if(caps){cJSON_AddItemToArray(caps,cJSON_CreateString("network-candidate-v1"));cJSON_AddItemToArray(caps,cJSON_CreateString("enrollment-v1"));cJSON_AddItemToArray(caps,cJSON_CreateString("transport-profiles-v1"));}}}
+        else{result=cJSON_CreateObject();if(result){cJSON_AddStringToObject(result,"device_id",device_id);cJSON_AddStringToObject(result,"nonce",nonce);cJSON_AddStringToObject(result,"public_key_pem",public_pem);cJSON_AddBoolToObject(result,"physical_confirmed",confirmed);cJSON *slots=cJSON_AddArrayToObject(result,"network_slots");if(slots)for(size_t i=0;i<network_count&&i<3;i++)cJSON_AddItemToArray(slots,cJSON_CreateString(saved_networks[i]));cJSON_AddNumberToObject(result,"max_network_slots",3);cJSON *caps=cJSON_AddArrayToObject(result,"capabilities");if(caps){cJSON_AddItemToArray(caps,cJSON_CreateString("network-candidate-v1"));cJSON_AddItemToArray(caps,cJSON_CreateString("network-retry-v1"));cJSON_AddItemToArray(caps,cJSON_CreateString("enrollment-v1"));cJSON_AddItemToArray(caps,cJSON_CreateString("transport-profiles-v1"));}}}
     }else if(op&&!strcmp(op,"result")){
         const char *id=string(input,"request_id",33);
         if(!id||strcmp(id,request_id))result=error_result("unknown_request");
@@ -229,7 +229,12 @@ static void prov_event(void *arg,esp_event_base_t base,int32_t id,void *data) {
     (void)arg;(void)base;xSemaphoreTake(guard,portMAX_DELAY);
     if(id==WIFI_PROV_CRED_RECV&&data){memcpy(&network,data,sizeof(network));credential_received=true;}
     if(id==WIFI_PROV_CRED_SUCCESS)credential_success=true;
+    bool retry=id==WIFI_PROV_CRED_FAIL;
+    /* A wrong password or a missing network must not end the window: forget the
+     * rejected credential and let the phone send corrected ones in this session. */
+    if(retry){credential_received=false;credential_success=false;memset(&network,0,sizeof(network));}
     xSemaphoreGive(guard);
+    if(retry)wifi_prov_mgr_reset_sm_state_on_failure();
 }
 static void stop_manager(void) {
     if(manager_live){wifi_prov_mgr_stop_provisioning();wifi_prov_mgr_deinit();esp_event_handler_unregister(WIFI_PROV_EVENT,ESP_EVENT_ANY_ID,prov_event);manager_live=false;}

@@ -326,12 +326,18 @@ test("HTTP credential rotation immediately closes old authenticated device conne
       }),
     );
     await until(() => frames.some((f) => f.type === "snapshot.end"));
+    const online = async () =>
+      (
+        await request(s, "/v1/devices", creds.controller_credential)
+      ).body.devices.find((d) => d.id === "rotation-device").online;
+    assert.equal(await online(), true);
     const closed = new Promise((r) => ws.once("close", r));
     const rotated = await consume(
       await ticket("rotate_credential", "b".repeat(64)),
     );
     assert.equal(rotated.status, 200);
     await closed;
+    assert.equal(await online(), false);
     assert.equal(
       (await request(s, "/v1/state", initial.body.credential)).status,
       403,

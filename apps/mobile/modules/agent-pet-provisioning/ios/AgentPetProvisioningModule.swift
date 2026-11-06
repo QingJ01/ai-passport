@@ -62,11 +62,22 @@ public class AgentPetProvisioningModule: Module {
         promise.resolve(text)
       }
     }.runOnQueue(.main)
+    // Networks the DEVICE can see (only 2.4 GHz ones), so people pick instead of typing.
+    AsyncFunction("scanWifi") { (promise: Promise) in
+      guard let device = self.device, device.isSessionEstablished() else { promise.reject("SESSION", "No authenticated setup session"); return }
+      guard (device.capabilities ?? []).contains("wifi_scan") else { promise.reject("SCAN_UNSUPPORTED", "Device cannot scan Wi-Fi"); return }
+      device.scanWifiList { list, error in
+        guard error == nil, let list = list else { promise.reject("SCAN", "Wi-Fi scan failed"); return }
+        promise.resolve(list.prefix(40).map { ["ssid": $0.ssid, "rssi": Int($0.rssi), "secure": $0.auth != .open] })
+      }
+    }.runOnQueue(.main)
     AsyncFunction("provision") { (ssid: String, passphrase: String, promise: Promise) in
       guard let device = self.device, device.isSessionEstablished() else { promise.reject("SESSION", "Setup expired"); return }
       device.provision(ssid: ssid, passPhrase: passphrase) { status in
         switch status {
         case .success: promise.resolve(nil)
+        case .failure(.wifiStatusAuthenticationError): promise.reject("WIFI_AUTH", "Wi-Fi password rejected")
+        case .failure(.wifiStatusNetworkNotFound): promise.reject("WIFI_NOT_FOUND", "Wi-Fi network not found")
         case .failure: promise.reject("WIFI", "Wi-Fi failed. Check credentials and 2.4 GHz availability.")
         case .configApplied: break
         }

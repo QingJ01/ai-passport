@@ -239,6 +239,13 @@ export function createService({
                 id: d.id,
                 source_id: d.source_id,
                 remote_enabled: d.remote_enabled,
+                // True while this device holds an authenticated socket (Wi-Fi or USB forwarder).
+                online: [...clients].some(
+                  (client) =>
+                    client.device?.id === d.id &&
+                    client.device?.account_id === d.account_id &&
+                    client.ws.readyState === WebSocket.OPEN,
+                ),
                 view_epoch:
                   mode === "relay"
                     ? (d.remote_view_epoch ?? d.view_epoch)

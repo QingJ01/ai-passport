@@ -4,7 +4,7 @@ import { TransportError } from "./transport.ts";
 export const PIN_MISMATCH =
   "证书指纹不匹配。请在电脑上重新运行 tools/agent_pet_up.sh phone，再扫一次新的二维码。";
 export const OFFLINE =
-  "连不上电脑。请确认手机和电脑在同一个 Wi-Fi 上，并且电脑上的 tools/agent_pet_up.sh 仍在运行。";
+  "连不上电脑。请确认电脑上的 tools/agent_pet_up.sh 还在运行，并且手机和电脑在同一个 Wi-Fi 上（用手机热点时，电脑要连在这部手机的热点上）。";
 const RULES: [RegExp, string][] = [
   [/fingerprint does not match/i, PIN_MISMATCH],
   [
@@ -57,6 +57,14 @@ const RULES: [RegExp, string][] = [
     "需要蓝牙权限。请在系统设置里允许本 App 使用蓝牙。",
   ],
   [/camera access/i, "需要相机权限。请在系统设置里允许本 App 使用相机。"],
+  [
+    /Wi-Fi password rejected/i,
+    "Wi-Fi 密码不对。检查一下大小写和有没有多打空格，再试一次。",
+  ],
+  [
+    /Wi-Fi network not found/i,
+    "设备找不到这个 Wi-Fi。它只能连 2.4 GHz；用手机热点时，iPhone 要打开“最大兼容性”，安卓要选 2.4 GHz。",
+  ],
   [
     /Wi-Fi|Candidate network|credentials and 2\.4 GHz|refused candidate/i,
     "设备连不上这个 Wi-Fi。请检查密码，并确认是 2.4 GHz 网络（5 GHz 不支持）。",

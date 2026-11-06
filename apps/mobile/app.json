@@ -5,13 +5,13 @@
     "version": "0.1.0",
     "scheme": "agentpet",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "dev.agentpet.companion",
       "supportsTablet": false,
       "infoPlist": {
-        "NSBluetoothAlwaysUsageDescription": "Securely configure your AI Passport during its setup window.",
-        "NSLocalNetworkUsageDescription": "Connect to the Agent Pet bridge running on your computer on this Wi-Fi network."
+        "NSBluetoothAlwaysUsageDescription": "配对时通过蓝牙连接你的 Agent Pet 设备，把 Wi-Fi 设置安全地发给它。",
+        "NSLocalNetworkUsageDescription": "连接你电脑上运行的 Agent Pet（同一个 Wi-Fi 或这部手机的热点里），读取任务和设备状态。"
       }
     },
     "android": {
@@ -30,7 +30,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Scan the temporary pairing code displayed by your AI Passport.",
+          "cameraPermission": "扫描电脑和设备屏幕上的配对二维码。",
           "recordAudioAndroid": false
         }
       ],

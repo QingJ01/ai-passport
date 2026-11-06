@@ -38,11 +38,36 @@ export function parseQR(raw: string): PairingQR {
     throw Error("Unsupported or insecure pairing code. Use USB recovery.");
   return q;
 }
+export type WifiFailure = "auth" | "not_found" | "other";
+export class WifiError extends Error {
+  constructor(
+    readonly reason: WifiFailure,
+    readonly retryable: boolean,
+  ) {
+    super(
+      reason === "auth"
+        ? "Wi-Fi password rejected"
+        : reason === "not_found"
+          ? "Wi-Fi network not found"
+          : "Wi-Fi connection failed",
+    );
+  }
+}
+export function wifiFailure(error: unknown): WifiFailure | null {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === "WIFI_AUTH") return "auth";
+  if (code === "WIFI_NOT_FOUND") return "not_found";
+  if (code === "WIFI") return "other";
+  return null;
+}
+
 export type TransportProfile = "local" | "remote";
 export interface NativeProvisioner {
   connect(q: PairingQR): Promise<void>;
   exchange(path: string, payload: string): Promise<string>;
   provision(ssid: string, passphrase: string): Promise<void>;
+  /** Networks the device itself can see; rejects with code SCAN_UNSUPPORTED on old firmware. */
+  scanWifi?(): Promise<unknown>;
   disconnect(): Promise<void>;
 }
 export interface Challenge {
@@ -69,7 +94,13 @@ export class SetupSession {
         "Setup expired. Open a new 120-second setup window on the device.",
       );
   }
-  private async bounded<T>(work: Promise<T>, timeout = 15000): Promise<T> {
+  // Any failure closes the session, except the ones `keep` accepts: those leave the
+  // device window open so the person can just correct their input and retry.
+  private async bounded<T>(
+    work: Promise<T>,
+    timeout = 15000,
+    keep: (e: unknown) => boolean = () => false,
+  ): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
@@ -87,11 +118,28 @@ export class SetupSession {
         }),
       ]);
     } catch (e) {
-      await this.close();
+      if (!keep(e)) await this.close();
       throw e;
     } finally {
       clearTimeout(timer);
     }
+  }
+  get canRetryWifi() {
+    return !!this.challenge?.capabilities.includes("network-retry-v1");
+  }
+  // Ask the device which Wi-Fi networks it can see. Failing to scan never ends setup:
+  // the person can still type the name.
+  async scan(): Promise<unknown> {
+    this.live();
+    if (!this.challenge) throw Error("Confirm the device first");
+    if (!this.native.scanWifi) throw Error("Device cannot scan Wi-Fi");
+    const list = await this.bounded(this.native.scanWifi(), 20000, (e) =>
+      ["SCAN", "SCAN_UNSUPPORTED"].includes(
+        String((e as { code?: unknown })?.code),
+      ),
+    );
+    this.live();
+    return list;
   }
   async open(q: PairingQR) {
     await this.close();
@@ -179,7 +227,18 @@ export class SetupSession {
     );
     this.live();
     if (result.ready !== true) throw Error("Device refused candidate network");
-    await this.bounded(this.native.provision(ssid, passphrase), 45000);
+    const retry = this.canRetryWifi;
+    try {
+      await this.bounded(
+        this.native.provision(ssid, passphrase),
+        45000,
+        (e) => retry && wifiFailure(e) !== null,
+      );
+    } catch (e) {
+      const reason = wifiFailure(e);
+      if (reason) throw new WifiError(reason, retry);
+      throw e;
+    }
     this.live();
     // Keep the same physical window open so first-use enrollment can configure the relay before TLS validation.
     // Firmware must commit only after path validation; standard Wi-Fi provisioning alone cannot establish this.

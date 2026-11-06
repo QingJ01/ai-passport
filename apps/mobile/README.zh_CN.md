@@ -28,24 +28,26 @@ npm start
 
 可选的 `scripts/ruby-sdk-compat.rb` 仅修复 macOS 系统 Ruby 2.6 寻找 `universal-darwin24` 头文件，而当前 Xcode SDK 提供 `universal-darwin25` 的问题。设置 `AGENTPET_RUBY_ARCH_HEADERS` 为实际 SDK 架构头文件目录，并设置 `RUBYOPT=-r<脚本绝对路径>`，再运行项目内 Bundler。它只修改当前进程的 `RbConfig`，不修改系统 Ruby 或 Xcode。现代 Ruby 无需此辅助脚本。
 
-## 两次扫码完成配对
+## 从零开始配对
 
-默认流程只需扫两次二维码、输入一次 Wi-Fi 密码。手机上还没有保存电脑时，应用启动后直接进入配对向导（简体中文）。
+默认流程是五步向导（简体中文）：选网络、扫电脑、扫设备、从设备自己搜到的列表里选网络并填密码、等设备上线。手机上还没有保存电脑时，应用启动后直接进入向导；保存过电脑的话，启动时自动重新连接。
 
-1. **扫电脑。** 在电脑终端运行 `tools/agent_pet_up.sh phone`，终端会显示二维码，内容是紧凑 JSON：
+1. **选网络。** “家里或办公室的 Wi-Fi”或“这部手机的热点”。选热点时先显示分平台的准备清单：iPhone 打开个人热点和“最大兼容性”（设备只支持 2.4 GHz），热点名就是 iPhone 的名字；安卓把频段设成 2.4 GHz。电脑先连上热点，这样空闲的 iPhone 热点也不会自动关掉；`tools/agent_pet_up.sh` 会在 15 秒内发现网络变化，并在新地址上重启桥接服务。清单还会提醒先记下密码，因为配对途中离开 App 会结束配对。
+
+2. **扫电脑。** 在电脑终端运行 `tools/agent_pet_up.sh phone`，终端会显示二维码，内容是紧凑 JSON：
 
    ```json
    {"v":"agentpet-pair-v1","origin":"https://<computer>.local:7443","origin_ip":"https://192.168.x.y:7443","token":"<controller credential>","pin":"<64 lowercase hex>","name":"<computer display name>"}
    ```
 
    应用严格校验：版本字符串必须完全一致；源地址必须是 HTTPS，且不带路径、查询参数或账号密码；`origin_ip` 可省略，出现时必须是 IPv4 或带方括号的 IPv6 字面量；`token` 为 43 位 base64url；`pin` 为 64 位小写十六进制；名称不超过 64 个字符且不含控制字符；不允许多余字段。校验后先访问电脑上的桥接服务，成功后才把 origin、`origin_ip`、token、pin 和名称写入系统安全存储（iOS 为“仅解锁时、仅本机”的钥匙串，Android 为 Keystore 支持的 SecureStore）。
-2. **扫设备。** 在设备菜单选“连接手机”，扫设备屏幕上的二维码，再在设备上按 OK。之后的 Security1 BLE 会话和以前一样，限时 120 秒。
-3. **输入 Wi-Fi 密码。** 平台允许时自动填好 Wi-Fi 名称。Android 在用户同意可选的位置权限后可以读取；iOS 读取 SSID 需要 Wi-Fi 信息权限（entitlement）和位置授权，本应用没有申请，所以一般需要用户手动输入名称。一个按钮在同一个物理配对窗口内依次完成：选择任务来源、`network.prepare` 和 Wi-Fi 配网、`service.trust`、申请票据、设备证明、consume、`service.configure`、`finish`。“设备已经连着 Wi-Fi”只跳过 Wi-Fi 这一步。
-4. **完成。** 设备连接桥接服务，应用提供“查看任务”入口。
+3. **扫设备。** 在设备菜单选“连接手机”，扫设备屏幕上的二维码，再在设备上按 OK。之后的 Security1 BLE 会话和以前一样，限时 120 秒。
+4. **选网络、填密码。** 设备确认后，App 让设备扫描附近网络（`scanWifi`，即 SDK 的 `prov-scan` 端点），按信号从强到弱列出设备能搜到的网络，带信号格和是否需要密码。列表里只会出现 2.4 GHz 网络，所以它同时能检查热点或路由器设备够不够得着。Android 能读到手机当前 Wi-Fi 且设备也搜得到时自动选中。“列表里没有？”可以改成手动输入；不支持扫描的旧固件直接手动输入。密码错误和找不到网络会分别报告（`WIFI_AUTH`、`WIFI_NOT_FOUND`），并按热点或 Wi-Fi 给出改法；固件声明 `network-retry-v1` 时，设备配对窗口保持打开，改好后直接再点“连接”。一个按钮在同一个物理配对窗口内依次完成：选择任务来源、`network.prepare` 和 Wi-Fi 配网、`service.trust`、申请票据、设备证明、consume、`service.configure`、`finish`。“设备已经连着 Wi-Fi”只跳过 Wi-Fi 这一步。
+5. **完成。** App 轮询 `GET /v1/devices`，直到设备的 `online` 为真（最多 75 秒）。超时后按设备屏幕上的提示（Wi-Fi 已连上但找不到电脑，或 Wi-Fi 正在重试）分别说明怎么处理，也提示可以先插 USB 线直接用。
 
 桥接服务只报告一个任务来源时自动选中；已归属的设备沿用原来源；有多个来源时直接在向导里选择，不需要先去“设备”页。如果扫描到的服务报告 `remote` 传输，仍会先弹出默认取消的同意对话框，用户同意后才共享。
 
-错误由 `src/friendly.ts` 转成中文白话，例如“电脑不在同一个 Wi-Fi 上”“二维码已过期，请在设备上重新打开”“证书指纹不匹配”。内部错误信息保持英文，且从不包含令牌、PoP 或 Wi-Fi 密码。
+错误由 `src/friendly.ts` 和 `src/wifi.ts` 转成中文白话，例如“电脑不在同一个 Wi-Fi 上”“二维码已过期，请在设备上重新打开”“证书指纹不匹配”。内部错误信息保持英文，且从不包含令牌、PoP 或 Wi-Fi 密码。
 
 老用户仍可在“账户”页的“高级 / Advanced”里手动填写 HTTPS 源地址和控制器令牌（证书指纹可选）；仅配对所有权、仅配置 Wi-Fi、远程中继这些操作放在“配对”页的“高级 / Advanced”里。
 
@@ -74,9 +76,11 @@ connectSecure / exchange / provision / disconnect   // BLE 接口不变
 
 ## 已实现页面
 
+应用跟随系统的浅色或深色外观，使用 iOS 系统配色、字号和分组列表，看起来像手机自带的应用，而不是一块主题化的仪表盘。
+
 - **Today：** 当前选中的设备、任务状态和实体类型、已加载主机会话的累计用量、源时间戳和 45 秒新鲜度、分别显示中继/来源/设备健康。今日用量和缺失健康信息显示不可用。刷新只读取并验证完整快照，不展示伪造实时示例。
 - **Devices：** 账户授权设备与来源列表、为新设备选择来源（只有一个来源时自动选中）、远程启停策略、公共模式请求、设备撤销。公共模式立即清除手机视图，等待服务的新隐私快照；不会声称已改变离线设备屏幕。
-- **Setup（配对）：** 上文的四步向导。“高级 / Advanced”里保留：摄像头扫描、原生蓝牙权限、安全会话、实体身份和物理确认、候选网络准备、达到固件报告容量时显式选择替换（最多三个 SSID）、独立的仅所有权/本地桥接/远程设置、超时/退出/后台清理与热点说明。固件不具备对应能力时明确拒绝。
+- **Setup（配对）：** 上文的五步向导，每一步下面都有可展开的排查提示。“高级选项”里保留仅所有权、本地桥接、远程设置和显式结束。向导本身包含摄像头扫描、原生蓝牙权限、安全会话、实体身份和物理确认、候选网络准备、达到固件报告容量时显式选择替换（最多三个 SSID）、超时/退出/后台清理。只有真正切到后台才结束配对：iOS 弹出蓝牙、相机、本地网络权限框时会报告 inactive，第一次配对正好会遇到，不能因此取消。固件不具备对应能力时明确拒绝。
 - **Account（账户）：** 扫电脑二维码或使用上次保存的电脑；“高级 / Advanced”里可填写管理员签发的账户范围控制器令牌及可选证书指纹、系统安全存储、验证后恢复会话、退出并清除缓存、服务和数据披露。当前中继没有浏览器 OAuth、账户恢复、生产身份提供者；界面明确说明。
 
 远程功能为 P1 只读。没有审批、回答、部署、支付、发布快捷操作，没有原生推送，不读取系统 Wi-Fi 口令，不自动开启热点，也不持续充当后台 BLE 网关。
@@ -115,7 +119,7 @@ iOS 显式关闭 SDK 日志。Android 上游会在 DEBUG 输出 PoP。配置插�
 
 接口先与服务队友协调后实现。手机不猜测 OAuth，不将控制器令牌发送到设备二维码中的地址。控制器令牌和目标地址只来自电脑二维码（带 pin，见上文）或手动输入。不带 pin 时，按本节下文使用系统证书验证，下文的 CA 安装步骤只适用于不带 pin 的手动输入；原生传输拒绝 HTTP 和所有重定向：iOS 为每次请求使用临时 URLSession，并由重定向代理显式拒绝；Android 使用 OkHttp 关闭 HTTP/HTTPS 重定向和连接自动重试。两端限制响应大小、请求时间，保持系统证书校验。应用注入该传输，不依赖 React Native 基于 XHR 的 fetch 是否执行 redirect 参数。自建 CA 需通过系统信任管理显式安装，不可关闭 TLS 校验。iOS 开发时仅传输 CA 证书，在 设置 → 通用 → VPN 与设备管理 安装描述文件，再在 关于本机 → 证书信任设置 显式信任该根。Android 的 debug 与优化 release 均信任系统根及用户主动安装的根，因此纯本地桥接可使用自有 CA，无需依赖公共云证书。在安全设置中仅安装明确选择的 CA；这会扩展手机信任范围，应由用户主动决定。证书链和主机名校验始终启用。Release 网络策略禁止明文；debug 资源允许 Metro HTTP，但原生服务客户端在所有变体都拒绝 HTTP。手机 DNS 名必须可达并与证书 SAN 一致；默认开发证书为 agentpet.local、localhost、127.0.0.1，直接输入主机 LAN IP 或手机自己的 localhost 都不能正常访问主机服务。必须明确配置真实可达域名和证书，没有证书错误绕过。
 
-- `GET /v1/devices`、`/v1/sources`、`/v1/health`、`/v1/devices/:id/state`，均通过 Authorization Bearer 认证。
+- `GET /v1/devices`、`/v1/sources`、`/v1/health`、`/v1/devices/:id/state`，均通过 Authorization Bearer 认证。`/v1/devices` 里每台设备带 `online`，设备持有已认证的设备连接（Wi-Fi 或 USB 转发）时为真；旧版桥接没有这个字段，App 显示为未知。
 - `GET /v1/service` 提供 transport:local/remote、endpoint、ca_pem、server_name、time、enrollment_public_key_pem、key_id。旧服务角色由已认证 health 判定，不来自二维码地址。端点为空时不能配置连接，仍可仅配对所有权。
 - `POST /v1/enrollment/tickets` 传设备 ID/公钥/nonce/来源 ID，返回一次性签名票据。服务签名的 UTF-8 canonical 为固定字段顺序 `{domain,ticket,account_id,device_id,source_id,nonce,public_key_pem,expires_at}`，expires_at 单位毫秒；手机不重新序列化已签名字节串。
 - 设备校验已受信/物理注册的服务 P-256 SHA-256 DER/base64url 签名和 nonce，再以设备私钥对原始 ticket 字符串签名。`POST /v1/enrollment/consume {ticket,proof}` 原子校验时效、账户、一次性使用和持钥证明，返回 `{device_id,credential}`。手机仅在同一已认证设备设置操作中转发凭据；仅配对所有权时丢弃所发凭据，不持久保存设备凭据。之后配置已有设备须明确传 operation:rotate_credential，以新的物理 nonce、相同账户/来源/P-256 公钥及新证明换发；消耗票据撤销旧设备凭据，不会静默启用远程共享。

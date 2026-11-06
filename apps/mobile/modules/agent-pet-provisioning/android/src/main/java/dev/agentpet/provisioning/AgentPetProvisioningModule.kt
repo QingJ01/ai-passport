@@ -78,9 +78,29 @@ class AgentPetProvisioningModule : Module() {
         override fun wifiConfigFailed(e: Exception) { promise.reject("WIFI", "Wi-Fi configuration failed", null) }
         override fun wifiConfigApplied() {}
         override fun wifiConfigApplyFailed(e: Exception) { promise.reject("WIFI", "Candidate network rejected", null) }
-        override fun provisioningFailedFromDevice(reason: ESPConstants.ProvisionFailureReason) { promise.reject("WIFI", "Check credentials and 2.4 GHz availability", null) }
+        override fun provisioningFailedFromDevice(reason: ESPConstants.ProvisionFailureReason) {
+          when (reason) {
+            ESPConstants.ProvisionFailureReason.AUTH_FAILED -> promise.reject("WIFI_AUTH", "Wi-Fi password rejected", null)
+            ESPConstants.ProvisionFailureReason.NETWORK_NOT_FOUND -> promise.reject("WIFI_NOT_FOUND", "Wi-Fi network not found", null)
+            else -> promise.reject("WIFI", "Check credentials and 2.4 GHz availability", null)
+          }
+        }
         override fun deviceProvisioningSuccess() { promise.resolve(null) }
         override fun onProvisioningFailed(e: Exception) { promise.reject("WIFI", "Wi-Fi connection failed", null) }
+      })
+    }
+    // Networks the DEVICE can see (only 2.4 GHz ones), so people pick instead of typing.
+    AsyncFunction("scanWifi") { promise: Promise ->
+      val d = device
+      if (d == null) { promise.reject("SESSION", "No authenticated setup session", null); return@AsyncFunction }
+      if (!d.deviceCapabilities.contains("wifi_scan")) { promise.reject("SCAN_UNSUPPORTED", "Device cannot scan Wi-Fi", null); return@AsyncFunction }
+      d.scanNetworks(object : WiFiScanListener {
+        override fun onWifiListReceived(list: java.util.ArrayList<WiFiAccessPoint>?) {
+          promise.resolve((list ?: arrayListOf()).take(40).map {
+            mapOf("ssid" to (it.wifiName ?: ""), "rssi" to it.rssi, "secure" to (it.security != ESPConstants.WIFI_OPEN.toInt()))
+          })
+        }
+        override fun onWiFiScanFailed(e: Exception?) { promise.reject("SCAN", "Wi-Fi scan failed", null) }
       })
     }
     AsyncFunction("disconnect") { close() }

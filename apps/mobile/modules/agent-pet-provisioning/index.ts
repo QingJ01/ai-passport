@@ -6,6 +6,7 @@ const native = requireOptionalNativeModule<{
   connectSecure(...args: string[]): Promise<void>;
   exchange(path: string, payload: string): Promise<string>;
   provision(ssid: string, passphrase: string): Promise<void>;
+  scanWifi?(): Promise<{ ssid: string; rssi: number; secure: boolean }[]>;
   disconnect(): Promise<void>;
   // pin: 64 lowercase hex SHA-256 of the server leaf certificate DER, or null for OS trust.
   request(
@@ -32,6 +33,7 @@ const adapter: NativeProvisioner = native
         ),
       exchange: (p, d) => native.exchange(p, d),
       provision: (s, p) => native.provision(s, p),
+      scanWifi: native.scanWifi ? () => native.scanWifi!() : undefined,
       disconnect: () => native.disconnect(),
     }
   : {
